@@ -1,0 +1,738 @@
+---
+title: "BioCro - Exploration"
+output: html_notebook
+---
+
+```{r setup, echo = FALSE, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+# install.packages("devtools")
+# devtools::install_github("ebimodeling/biocro-dev", auth_token =  "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", force = "TRUE")
+
+library(dplyr)
+library(ggplot2)
+library(BioCro)
+library(lattice)
+```
+
+### Understanding NoAA
+
+![NoAA Weather Forecast Skill](NoaaSkill.png){#noaa_skill style="color: red"}
+
+-   According to the graph, forecast skill of the Global Forecast system in the NoAA weather graph is defined as a quantity given by 100\*(1 - S1/70) where skill (S1) is based on mean error of the 500 mb heights in the forecasts relative to radiosonde measurements over North America.
+-   It is said that they are using S1 as mean error. However, given the way the values are all positive, it is not so clear that they are using mean error as mean error can be positive or negative.
+-   Plausible skill measures: RMSE, MAE are some of the skill measures that one can consider. Chi-square test is often used for goodness of fit testing when the data is divided into groups (or) for a discrete case. In our case too, can we create groups for comparison?
+
+### Climate Data that was provided
+
+```{r climatedata, echo = FALSE}
+## Justin's code for climate input to the model
+climate = read.delim(file.path("~/imsi/Internship/data", 'filled_climate.tsv'))
+
+climate = climate[c('year', 'doy', 'hour', 'par', 'temperature', 'relative_humidity', 'windspeed', 'precipitation')]
+names(climate) = c('year', 'doy', 'hour', 'solar', 'temp', 'rh', 'windspeed', 'precip')
+climate = within(climate, {
+    rh = rh / 100  # dimensionless. NOAA reports relative humidity as a percent of saturated vapor pressure.
+    solar = solar * 4.6  # micromole / m^2 / s. The NOAA sensor outputs micromoles / m^2 / s and they divide by 4.6 to convert to W / m^2 / s. See excerpt from NOAA SURFRAD README above.
+    precip = precip * 25.4  # mm. NOAA reports precipitation in inches.
+    time = doy + hour / 24
+    doy_time = doy * 24 + hour
+    # WindSpeed  # m / s.
+    # temp  # degrees Celsius.
+    # hour  # 0 - 23.
+})
+
+climate = climate[complete.cases(climate), ]
+
+climate16 = subset(climate, year == 2016 & doy > 167)  # According the these notes dated June 16, sorghum at SoyFACE had emerged, but not at the Energy Farm. It's a decent estimate.
+climate17 = subset(climate, year == 2017 & doy > 151)
+
+
+head(climate16)
+head(climate17)
+```
+
+#### Questions:
+- In EF, we've observed 2016 observations whereas in the other two sites, data is from 2017. \
+- We've run the climate data. (Doubts in real data, the observations are sometimes from the August/September months and sometimes in June/July. Why is that?) \
+
+#### Solutions:
+- Use climate16, climate17 separately for these. Include an indicator while graphing and caculating MAE, MAPE and other statistics. 
+
+
+### BioCro Models Run:
+
+#### Sorghum Models Run
+
+```{r modelrun, echo  = FALSE}
+##### Sorghum Model Run ###########################
+sorghum_steady_state_modules <- list(
+    "soil_type_selector",
+    "stomata_water_stress_linear",
+    "leaf_water_stress_exponential",
+    "parameter_calculator",
+    "soil_evaporation",
+    "c4_canopy",
+    "partitioning_coefficient_selector",
+    "partitioning_growth_calculator"
+)
+
+sorghum_derivative_modules <- list(
+    "thermal_time_senescence",
+    "partitioning_growth",
+    "thermal_time_trilinear",
+    "one_layer_soil_profile"
+)
+
+sorghum_result16 <- Gro_solver(
+    sorghum_initial_values,
+    sorg_parameters,
+    climate16,
+    sorghum_steady_state_modules,
+    sorghum_derivative_modules
+)
+
+sorghum_result17 <- Gro_solver(
+    sorghum_initial_values,
+    sorg_parameters,
+    climate17,
+    sorghum_steady_state_modules,
+    sorghum_derivative_modules
+)
+
+View(sorghum_result16)
+View(sorghum_result17)
+
+```
+
+
+#### Myscanthus Model
+
+```{r echo = FALSE}
+##### Myscanthus Model Run ##################################
+## https://github.com/ebimodeling/biocro-dev/blob/master/data/miscanthus_x_giganteus.R
+
+miscanthus_x_giganteus_steady_state_modules <- list(
+    "soil_type_selector",
+    stomata_water_stress = "stomata_water_stress_linear",
+    "leaf_water_stress_exponential",
+    "parameter_calculator",
+    "soil_evaporation",
+    canopy_photosynthesis = "c4_canopy",
+    partitioning_coefficients = "partitioning_coefficient_selector",
+    partitioning_growth_calculator = "partitioning_growth_calculator"
+)
+
+miscanthus_x_giganteus_derivative_modules <- list(
+    senescence = "thermal_time_senescence",
+    "partitioning_growth",
+    thermal_time = "thermal_time_linear",
+    soil_profile = "one_layer_soil_profile"
+)
+
+# Error tolerances greater than 1e-5 may cause problems with the regression test
+miscanthus_x_giganteus_integrator <- list(
+    type = 'auto',
+    output_step_size = 1.0,
+    adaptive_rel_error_tol = 1e-5,
+    adaptive_abs_error_tol = 1e-5,
+    adaptive_max_steps = 200
+)
+
+# Do the calculations inside an empty list so that temporary variables are not created in .Global.
+miscanthus_x_giganteus_initial_values = with(list(), {
+    datalines =
+    "symbol                     value
+    Grain                       0
+    Leaf                        7e-04
+    LeafLitter                  0
+    leaf_senescence_index       0
+    Rhizome                     7
+    RhizomeLitter               0
+    rhizome_senescence_index    0
+    Root                        0.007
+    RootLitter                  0
+    root_senescence_index       0
+    soil_water_content          0.32
+    Stem                        0.007
+    StemLitter                  0
+    stem_senescence_index       0
+    TTc                         0"
+
+    data_frame = utils::read.table(textConnection(datalines), header=TRUE)
+    values = as.list(data_frame$value)
+    names(values) = data_frame$symbol
+    values
+})
+
+# Do the calculations inside an empty list so that temporary variables are not created in .Global.
+miscanthus_x_giganteus_parameters = with(list(), {
+    datalines =
+    "symbol                     value
+    absorptivity_par            0.8
+    alpha1                      0.04
+    alphab1                     0
+    atmospheric_pressure        101325
+    b0                          0.08
+    b1                          3
+    beta                        0.93
+    Catm                        400
+    chil                        1
+    et_equation                 0
+    Gs_min                      1e-3
+    heightf                     3
+    iSp                         1.7
+    kd                          0.1
+    kGrain1                     0
+    kGrain2                     0
+    kGrain3                     0
+    kGrain4                     0
+    kGrain5                     0
+    kGrain6                     0
+    kLeaf1                      0.33
+    kLeaf2                      0.14
+    kLeaf3                      0.01
+    kLeaf4                      0.01
+    kLeaf5                      0.01
+    kLeaf6                      0.01
+    kparm                       0.7
+    kpLN                        0.2
+    kRhizome1                   -8e-04
+    kRhizome2                   -5e-04
+    kRhizome3                   0.35
+    kRhizome4                   0.35
+    kRhizome5                   0.35
+    kRhizome6                   0.35
+    kRoot1                      0.3
+    kRoot2                      0.01
+    kRoot3                      0.01
+    kRoot4                      0.01
+    kRoot5                      0.01
+    kRoot6                      0.01
+    kStem1                      0.37
+    kStem2                      0.85
+    kStem3                      0.63
+    kStem4                      0.63
+    kStem5                      0.63
+    kStem6                      0.63
+    lat                         40
+    LeafN                       2
+    LeafN_0                     2
+    leafwidth                   0.04
+    lnb0                        -5
+    lnb1                        18
+    lnfun                       0
+    lowerT                      3
+    mrc1                        0.02
+    mrc2                        0.03
+    nalphab0                    0.02367
+    nalphab1                    0.000488
+    nileafn                     85
+    nkln                        0.5
+    nkpLN                       0.17
+    nlayers                     10
+    nlnb0                       -5
+    nlnb1                       18
+    nRdb0                       -4.5917
+    nRdb1                       0.1247
+    nvmaxb0                     -16.25
+    nvmaxb1                     0.6938
+    phi1                        0.01
+    phi2                        10
+    Rd                          0.8
+    remobilization_fraction     0.6
+    retrans                     0.9
+    retrans_rhizome             1.0
+    rsec                        0.2
+    seneLeaf                    3000
+    seneRhizome                 4000
+    seneRoot                    4000
+    seneStem                    3500
+    soil_clod_size              0.04
+    soil_depth                  1
+    soil_reflectance            0.2
+    soil_transmission           0.01
+    soil_type_indicator         6
+    specific_heat_of_air        1010
+    Sp_thermal_time_decay       0
+    stefan_boltzman             5.67e-8
+    tbase                       0
+    theta                       0.83
+    timestep                    1
+    tp1                         562
+    tp2                         1312
+    tp3                         2063
+    tp4                         2676
+    tp5                         3211
+    upperT                      37.5
+    vmax1                       39
+    vmax_n_intercept            0
+    water_stress_approach       1"
+
+    data_frame = utils::read.table(textConnection(datalines), header=TRUE)
+    values = as.list(data_frame$value)
+    names(values) = data_frame$symbol
+    values
+})
+
+miscanthus_x_giganteus_result <- Gro_solver(
+    miscanthus_x_giganteus_initial_values,
+    miscanthus_x_giganteus_parameters,
+    get_growing_season_climate(climate16),
+    miscanthus_x_giganteus_steady_state_modules,
+    miscanthus_x_giganteus_derivative_modules
+)
+
+```
+
+
+
+### Real Data (Yield from various sources)
+
+```{r yield, echo = FALSE}
+library("dplyr")
+library("ggplot2")
+library("nloptr")
+
+##########################################################################
+######################## Yield Dataset ###################################
+##########################################################################
+
+yield <- read.delim("~/imsi/Internship/data/biomass-yield.txt", 
+           header = TRUE, 
+           sep = "\t")
+
+
+# biomass file was inputted via "Import Dataset"
+# this calculates doy in order to join to the model result data
+yield$date = as.Date(yield$date,  format = "%m/%d/%y")
+yield = within(yield, {
+  doy = as.numeric(strftime(yield$date, format = "%j"))
+})
+yield[,"yield"] = yield[,'above_ground_mass'] * 10 / (yield[,'row_length'] * yield[,'row_spacing'])
+
+
+##########################################################################
+################# Partitioning & Leaf_area Datasets ######################
+##########################################################################
+
+partitioning <- read.delim("~/imsi/Internship/data/biomass partitioning.txt", 
+           header = TRUE, 
+           sep = "\t")
+partitioning[['date']] = as.Date(partitioning[['date']], format = "%m/%d/%y")
+
+library(readxl)
+leaf_area <- read_excel("~/imsi/Internship/data/leaf area.xlsx")
+leaf_area <- leaf_area[4:dim(leaf_area)[1],]
+colnames(leaf_area) <- c("date", "time_point",  "site_id",  "range", "row_set", "leaf_area_m2")
+str(leaf_area)
+leaf_area[['date']] = as.Date(as.numeric(leaf_area[['date']])- 2, origin = "1900-01-01", format = "%Y-%m-%d")
+
+
+##########################################################################
+################# LAI Dataset ############################################
+##########################################################################
+
+
+lai= merge(leaf_area, partitioning, by=c('site_id', 'range', 'date', 'time_point'))
+    lai$year = format(as.Date(lai$date, format ="%d/%m/%Y"),"%Y")
+    lai= merge(lai, yield, all=TRUE)
+    lai$leaf_area_m2  = as.numeric(lai$leaf_area_m2)
+    lai= within(lai, {
+        specific_leaf_area = leaf_area_m2/ leaf_mass  # m^2 / kg
+        leaf_fraction_a = leaf_mass/above_ground_mass
+        leaf_yield = yield * leaf_fraction_a  # kg / m^2
+        actual_lai = leaf_yield * specific_leaf_area  # m^2 / m^2.
+    })
+
+write.table(lai, "~/imsi/Internship/data/lai.txt", sep = "\t")
+
+# actual_yield_2016 <- yield %>%
+#   filter(site_id == "EF") %>%
+#   group_by(date) %>%
+#   summarize(ActualMeanYield = mean(yield))
+# 
+# actual_yield_2017 <- yield %>%
+#   filter(site_id != "EF") %>%
+#   group_by(date) %>%
+#   summarize(ActualMeanYield = mean(yield))
+
+# model_yield_2016 <- sorghum_result16 %>% 
+#     group_by(doy) %>%
+#     summarize(meanYield = mean(Leaf) + mean(Stem))
+
+# innerJoinDf <- left_join(yield_filter, model_yield_2016, by = c("doy" = "doy"))
+
+## Plot the specific_leaf_area, leaf_fraction, lai values as a function of time.
+
+ggplot(lai) + geom_point(aes(x = date, y = specific_leaf_area, color = "specific_leaf_area")) + geom_point(aes(x = date, y = actual_lai, color = "lai"))
+
+ggplot(lai) +  geom_point(aes(x = date, y = leaf_fraction_a, color = "leaf_fraction_a"))
+```
+
+The data provided in "biomass yield" is from 2016  and 2017. Furthermore, there are three sites and also sometimes datapoints from different phenotypes, information of which is not important or provided. The three data changes required in cleaning are separation based on year, modification of date to "doy" for relevant comparison, and evaluating yield in the appropriate units (metric system). 
+
+Currently, we use this simulated data and the few observations (real) to get our skill measures such as MAPE, RMSE, MAE, ME, Chi-square.
+
+```{r echo = FALSE}
+
+Statistics <- function(actual_data, model_result, actual_filter_vars, actual_filter_cond, model_vars){
+  
+  actual_temp <- character()
+  for (i in 1:length(actual_filter_vars)) {
+  actual_temp <-   paste0( actual_temp, ",",  ".data[[actual_filter_vars[[", i, "]]]] %in% actual_filter_cond[[", i, "]]") }
+  actual_Filter <- paste0("filter(", actual_temp,  ")")
+  siteData  <- eval(parse(text = paste0("actual_data %>% ",  actual_Filter)))
+  # model_result <- eval(parse(text = model_result_str))
+  
+  model_temp <- "mean(.data[[model_vars[[1]]]])"
+  for (j in 2:length(model_vars)) {
+    model_temp <- paste0(model_temp, " + mean(.data[[model_vars[[", j, "]]]])")
+  }
+  
+  # siteData = subset(actual_data, site_id==siteId) #filter by site_id
+  byDay <- eval(parse(text = paste0("model_result %>% group_by(doy) %>% summarize(meanYield = ", model_temp, ", mean_lai = mean(lai))")))
+  
+  innerJoinDf <- left_join(siteData, byDay, by = c("doy" = "doy")) #joins the two dataframes so we can graph on the same axes
+  innerJoinDf <- mutate(innerJoinDf, actualMinusModelyield = yield - meanYield) #makes a column for actual data minus model data
+  innerJoinDf <- mutate(innerJoinDf, actualMinusModellai = actual_lai - mean_lai)
+  innerJoinDf <- mutate(innerJoinDf,actualMinusModelAbsyield = abs(actualMinusModelyield)) #makes a column for absolute value of difference
+    innerJoinDf <- mutate(innerJoinDf, actualMinusModelAbslai = abs(actualMinusModellai))
+  innerJoinDf <- mutate(innerJoinDf,diffSquaresyield = actualMinusModelyield * actualMinusModelyield) #makes a column for the square of the difference
+    innerJoinDf <- mutate(innerJoinDf,diffSquareslai = actualMinusModellai * actualMinusModellai) #makes a column for the square of the difference
+    
+  innerJoinDf <- mutate(innerJoinDf, absPercentErroryield = actualMinusModelAbsyield/above_ground_mass * 100) #makes a column for absolute value of percentage difference
+  innerJoinDf <- mutate(innerJoinDf, absPercentErrorlai = actualMinusModelAbslai/actual_lai * 100) #makes a column for absolute value of percentage difference
+  
+  innerJoinDf <- mutate(innerJoinDf,  chiSquareToSumyield = diffSquaresyield/above_ground_mass) #makes a column for square of difference over actual value (for chi square calculation)
+    innerJoinDf <- mutate(innerJoinDf,  chiSquareToSumlai = diffSquareslai/actual_lai) #makes a column for square of difference over actual value (for chi square calculation)
+  
+  #find sums of a few columns for stats calculations
+  SumOfDiffsSquaredyield = sum(innerJoinDf[,'diffSquaresyield'])
+  SumOfAbsDiffsyield = sum(innerJoinDf[,'actualMinusModelAbsyield'])
+  SumOfDiffsSquaredlai = sum(innerJoinDf[,'diffSquareslai'])
+  SumOfAbsDiffslai = sum(innerJoinDf[,'actualMinusModelAbslai'])
+  
+  #number of rows
+  n = nrow(innerJoinDf)
+  
+  #stats calculations
+  RMSE_yield = sqrt(SumOfDiffsSquaredyield/n)
+  MAE_yield = SumOfAbsDiffsyield/n
+  RMSE_lai = sqrt(SumOfDiffsSquaredlai/n)
+  MAE_lai = SumOfAbsDiffslai/n
+  
+  SumOfAbsPercsyield = sum(innerJoinDf[,'absPercentErroryield'])
+  SumOfAbsPercslai = sum(innerJoinDf[,'absPercentErrorlai'])
+  
+  MAPE_yield = SumOfAbsPercsyield/n
+  MAPE_lai = SumOfAbsPercslai/n
+  
+  ChiSquare_yield = sum(innerJoinDf[,'chiSquareToSumyield'])
+  ChiSquare_lai = sum(innerJoinDf[,'chiSquareToSumlai'])  
+  #return as string to be printed on graph
+  return(list("RMSE_yield"= round(RMSE_yield,digits=2), "MAE_yield" = round(MAE_yield, digits=2),  "MAPE_yield"= round(MAPE_yield,digits=2) , "ChiSquare_yield" =  round(ChiSquare_yield, digits=2), "RMSE_lai"= round(RMSE_lai,digits=2), "MAE_lai" = round(MAE_lai, digits=2),  "MAPE_lai"= round(MAPE_lai,digits=2) , "ChiSquare_lai" =  round(ChiSquare_lai, digits=2),   "str" = paste("RMSE_yield:",round(RMSE_yield,digits=2),"MAE_yield:", round(MAE_yield,digits=2),"MAPE_yield:",round(MAPE_yield,digits=2),"Chi Square_yield:",round(ChiSquare_yield,digits=2), "\n","RMSE_lai:",round(RMSE_lai,digits=2),"MAE_lai:", round(MAE_lai,digits=2),"MAPE_lai:",round(MAPE_lai,digits=2),"Chi Square_lai:",round(ChiSquare_lai,digits=2))  ))
+}
+
+Statistics(lai, sorghum_result16, c("site_id"), c("MW_trans_border"), c("Leaf", "Stem"))[['str']]
+
+Statistics(lai, sorghum_result16, c("site_id"), c("MW_trans_border"), c("lai"))
+
+```
+
+
+```{r plotsummary, echo = FALSE}
+library(cowplot)
+
+## plot of sorghum result 16 with the yield in site EF (also from 2016)
+p1 <- ggplot() + geom_line(data = sorghum_result16, mapping = aes(x = doy, y = Leaf + Stem, color = "Modelyield")) + geom_line(data = sorghum_result16, mapping = aes(x = doy, y = lai, color = "Modellai"))  + 
+  geom_point(data  = lai[which(lai$site_id == "EF"),], aes(x = doy, y = yield, color = "Actual")) + labs(title = "sorghum 16 vs EF yield", caption = Statistics(lai, sorghum_result16, c("site_id"), c("EF"), c("Stem", "Leaf") )$str) +  geom_point(data = lai[which(lai$site_id == "EF"),], aes(x = doy, y = actual_lai))
+## plot of sorghum result 17 with the yield from sites other than EF (2017 yield data)
+p2 <- ggplot() + geom_line(data = sorghum_result17, mapping = aes(x = doy, y = Leaf + Stem, color = "Model")) +
+  geom_point(data  = yield[which(yield$site_id == "EF_check"),], aes(x = doy, y = yield, color = "Actual")) + labs(title = "sorghum 17 vs. EF_check", caption = Statistics(yield, sorghum_result17, c("site_id"), c("EF_check"), c("Stem", "Leaf"))$str) + scale_color_manual(name = "Data Source",values = c("blue", "black"))
+p3 <- ggplot() + geom_line(data = sorghum_result17, mapping = aes(x = doy, y = Leaf + Stem, color = "Model")) +
+  geom_point(data  = yield[which(yield$site_id == "MW_trans_border"),], aes(x = doy, y = yield, color = "Actual")) + labs(title = "sorghum 17 vs. MW_trans_border", caption = Statistics(yield, sorghum_result17, c("site_id"), c("MW_trans_border"), c("Stem", "Leaf"))$str) + scale_color_manual(name = "Data Source",values = c("blue", "black"))
+p4 <- ggplot() + geom_line(data = sorghum_result17, mapping = aes(x = doy, y = Leaf + Stem, color = "Model")) +
+  geom_point(data  = yield[which(yield$site_id != "EF"),], aes(x = doy, y = yield, color = "Actual")) + labs(title = "sorghum 17 vs. sites 17", caption = Statistics(yield, sorghum_result17, c("site_id"), list( c("EF_check", "MW_trans_border")), c("Stem", "Leaf"))$str) + scale_color_manual(name = "Data Source",values = c("blue", "black"))
+
+plot_grid(p1, p2, p3, p4, ncol = 1)
+
+
+
+
+
+p1 <- ggplot() + geom_line(data = sorghum_result16, mapping = aes(x = doy, y = Leaf + Stem, color = "Modelyield")) + geom_line(data = sorghum_result16, mapping = aes(x = doy, y = lai, color = "Modellai"))  + 
+  geom_point(data  = lai[which(lai$site_id == "EF"),], aes(x = doy, y = yield, color = "Actualyield")) +  geom_point(data = lai[which(lai$site_id == "EF"),], aes(x = doy, y = actual_lai, color  = "ActualLAI")) + labs(title = "sorghum 16 vs EF yield", caption = Statistics(lai, sorghum_result16, c("site_id"), c("EF"), c("Stem", "Leaf") )$str) 
+
+
+p2 <- ggplot() + geom_line(data = sorghum_result16_new, mapping = aes(x = doy, y = Leaf + Stem, color = "Modelyield")) + geom_line(data = sorghum_result16_new, mapping = aes(x = doy, y = lai, color = "Modellai"))  + 
+  geom_point(data  = lai[which(lai$site_id == "EF"),], aes(x = doy, y = yield, color = "Actual_yield")) + labs(title = "sorghum 16 vs EF yield", caption = Statistics(lai, sorghum_result16_new, c("site_id"), c("EF"), c("Stem", "Leaf") )$str) +  geom_point(data = lai[which(lai$site_id == "EF"),], aes(x = doy, y = actual_lai, color =  "Actual_LAI"))
+
+plot_grid(p1, p2, ncol = 1)
+
+
+
+p1 <- ggplot() + geom_line(data = sorghum_result17, mapping = aes(x = doy, y = Leaf + Stem, color = "Modelyield")) + geom_line(data = sorghum_result17, mapping = aes(x = doy, y = lai, color = "Modellai"))  + 
+  geom_point(data  = lai[which(lai$site_id != "EF"),], aes(x = doy, y = yield, color = "Actualyield")) +  geom_point(data = lai[which(lai$site_id != "EF"),], aes(x = doy, y = actual_lai, color  = "ActualLAI")) + labs(title = "sorghum 16 vs EF yield", caption = Statistics(lai, sorghum_result17, c("site_id"), c("EF"), c("Stem", "Leaf") )$str) 
+
+
+p2 <- ggplot() + geom_line(data = sorghum_result17_new, mapping = aes(x = doy, y = Leaf + Stem, color = "Modelyield")) + geom_line(data = sorghum_result17_new, mapping = aes(x = doy, y = lai, color = "Modellai"))  + 
+  geom_point(data  = lai[which(lai$site_id != "EF"),], aes(x = doy, y = yield, color = "Actual_yield")) + labs(title = "sorghum 17 vs yield", caption = Statistics(lai, sorghum_result17_new, c("site_id"), list( c("EF_check", "MW_trans_border")), c("Stem", "Leaf") )$str) +  geom_point(data = lai[which(lai$site_id != "EF"),], aes(x = doy, y = actual_lai, color =  "Actual_LAI"))
+
+plot_grid(p1, p2, ncol = 1)
+```
+
+
+### Model Parameters - Modeling
+
+```{r fitparams ,echo = FALSE}
+
+normalize_kVals <- function(current_params){
+  kVals <- data.frame(Leaf = c(current_params$kLeaf1,current_params$kLeaf2,current_params$kLeaf3,current_params$kLeaf4,current_params$kLeaf5,current_params$kLeaf6),
+                      Stem = c(current_params$kStem1,current_params$kStem2,current_params$kStem3,current_params$kStem4,current_params$kStem5,current_params$kStem6),
+                      Root = c(current_params$kRoot1,current_params$kRoot2,current_params$kRoot3,current_params$kRoot4,current_params$kRoot5,current_params$kRoot6),
+                      Grain = c(current_params$kGrain1,current_params$kGrain2,current_params$kGrain3,current_params$kGrain4,current_params$kGrain5,current_params$kGrain6))
+                      
+  kVals <- mutate(kVals, Sum = Leaf + Stem + Root + Grain)
+  kVals <- mutate(kVals, Leaf = Leaf/Sum)
+  kVals <- mutate(kVals, Stem = Stem/Sum)
+  kVals <- mutate(kVals, Root = Root/Sum)
+  kVals <- mutate(kVals, Grain = Grain/Sum)
+  
+  current_params$kLeaf1 <- kVals[1,1]
+  current_params$kLeaf2 <- kVals[2,1]
+  current_params$kLeaf3 <- kVals[3,1]
+  current_params$kLeaf4 <- kVals[4,1]
+  current_params$kLeaf5 <- kVals[5,1]
+  current_params$kLeaf6 <- kVals[6,1]
+  current_params$kStem1 <- kVals[1,2]
+  current_params$kStem2 <- kVals[2,2]
+  current_params$kStem3 <- kVals[3,2]
+  current_params$kStem4 <- kVals[4,2]
+  current_params$kStem5 <- kVals[5,2]
+  current_params$kStem6 <- kVals[6,2]
+  current_params$kRoot1 <- kVals[1,3]
+  current_params$kRoot2 <- kVals[2,3]
+  current_params$kRoot3 <- kVals[3,3]
+  current_params$kRoot4 <- kVals[4,3]
+  current_params$kRoot5 <- kVals[5,3]
+  current_params$kRoot6 <- kVals[6,3]
+  current_params$kGrain1 <- kVals[1,4]
+  current_params$kGrain2 <- kVals[2,4]
+  current_params$kGrain3 <- kVals[3,4]
+  current_params$kGrain4 <- kVals[4,4]
+  current_params$kGrain5 <- kVals[5,4]
+  current_params$kGrain6 <- kVals[6,4]
+  
+  return(current_params)
+}
+
+## Evaluates the climate corresponding to a year. (Inputs to model)
+yrClimate <- function(year){
+  if(year==2016) {return(climate16)}
+  else {return(climate17)} 
+}
+
+sorg_parameters <- sorghum_parameters
+sorg_parameters[['tmax']] <- 43
+sorg_parameters[['topt_upper']] <- 34
+sorg_parameters[['topt_lower']] <- 21
+sorg_parameters[['Sp_thermal_time_decay']] <- 0.00001
+sorg_parameters[['iSp']] <- 1.5
+
+# stat is either of "RMSE", "MAE",  "MAPE", "ChiSquare"
+partial_gro_solver_n <- function (initial_values, parameters, drivers, steady_state_module_names, 
+    derivative_module_names, arg_names, solver = list(type = "Gro", 
+        output_step_size = 1, adaptive_rel_error_tol = 1e-04, 
+        adaptive_abs_error_tol = 1e-04, adaptive_max_steps = 200), 
+    verbose = FALSE) 
+{
+    arg_list = list(initial_values = initial_values, parameters = parameters, 
+        drivers = drivers, steady_state_module_names = steady_state_module_names, 
+        derivative_module_names = derivative_module_names, solver = solver, 
+        verbose = verbose)
+    df = data.frame(control = character(), arg_name = character(), 
+        stringsAsFactors = FALSE)
+    for (i in seq_along(arg_list)) {
+        if (length(names(arg_list[[i]])) > 0) {
+            df = rbind(df, data.frame(control = names(arg_list)[i], 
+                arg_name = names(arg_list[[i]]), stringsAsFactors = FALSE))
+        }
+    }
+    controls = df[match(arg_names, df$arg_name), ]
+    if (any(is.na(controls))) {
+        missing = arg_names[which(is.na(controls$control))]
+        stop(paste("The following arguments in \"arg_names\" are not in any of the paramter lists:", 
+            paste(missing, collapse = ", ")))
+    }
+    function(x) {
+        if (length(x) != length(arg_names)) 
+            stop("The length of x does not match the length of arguments when this function was defined.")
+        x = unlist(x)
+        temp_arg_list = arg_list
+        for (i in seq_along(arg_names)) {
+            c_row = controls[i, ]
+            temp_arg_list[[c_row$control]][[c_row$arg_name]] = x[i]
+        }
+        do.call(Gro_solver, temp_arg_list)
+    }
+}
+
+
+
+new_parameters <- function(params_to_change, current_params, min_val, max_val, year, stat){
+  
+    sorghum_partial <- function(yr){
+    return(partial_gro_solver_n(sorghum_initial_values, current_params, yrClimate(yr), sorghum_steady_state_modules, sorghum_derivative_modules, params_to_change))
+  }
+
+sorghum_stat <- function(x) {
+    sorghum_partial_run <- sorghum_partial(year)(x)
+    
+    if (year == 2016) {
+    return(Statistics(yield, sorghum_partial_run, c("site_id"), c("EF"), c("Stem", "Leaf"))[[stat]])}
+    
+    if (year  == 2017) {
+      return(Statistics(yield, sorghum_partial_run, c("site_id"), list(c("EF_check",  "MW_trans_border")), c("Stem", "Leaf"))[[stat]])
+    }
+}
+  para <- Reduce(c, as.numeric(unname(current_params[params_to_change])))
+
+  ans <- hjkb(para, sorghum_stat, lower = min_val, upper = max_val, control = list(maximize = FALSE))
+  new_params <- ans$par
+  names(new_params) <- params_to_change
+  altered_params <- current_params
+  for(p in params_to_change){
+    altered_params[[p]] <- new_params[[p]]
+  }
+  return(list("par" = altered_params, "obj_val" = ans$value ))
+}
+
+sorghum_parameters$vmax_n_intercept <- 0
+
+
+new_params <- new_parameters(c("iSp", "Sp_thermal_time_decay",  "tp1"), sorg_parameters, c(1e-07, 1e-07, 1e-07), c(20, 1e-04, 700),  2016, "MAPE")
+
+
+new_params2 <- new_parameters(c("iSp",   "Sp_thermal_time_decay", "tp1",
+                               "tp2","tp3","tp4","tp5",           "kLeaf1","kLeaf2","kLeaf3","kLeaf4","kLeaf5","kLeaf6",
+                               "kStem1","kStem2","kStem3","kStem4","kStem5","kStem6",
+                               "kRoot1","kRoot2","kRoot3","kRoot4","kRoot5","kRoot6"), sorg_parameters, rep(1e-08, 25), c(20, 1e-04, 1000*1:5, rep(1, 18)), 2016, "MAPE")
+
+
+new_params4 <- new_parameters(c("iSp",   "Sp_thermal_time_decay", "tp1",
+                               "tp2","tp3","tp4","tp5",           "kLeaf1","kLeaf2","kLeaf3","kLeaf4","kLeaf5","kLeaf6",
+                               "kStem1","kStem2","kStem3","kStem4","kStem5","kStem6",
+                               "kRoot1","kRoot2","kRoot3","kRoot4","kRoot5","kRoot6"), sorg_parameters, rep(1e-08, 25), c(20, 1e-04, 1000*1:5, rep(1, 18)), 2016, "MAPE")
+
+
+params_to_change <- c("iSp",   "Sp_thermal_time_decay", "tp1", "tp2","tp3","tp4","tp5",  "kLeaf1","kLeaf2","kLeaf3","kLeaf4","kLeaf5","kLeaf6", "kStem1","kStem2","kStem3","kStem4","kStem5","kStem6", "kRoot1","kRoot2","kRoot3","kRoot4","kRoot5","kRoot6")
+
+
+new_params3 <- normalize_kVals(new_params2$par)
+new_params2$obj_val
+
+old <- function(x) {sorg_parameters[[x]]}
+new <- function(x) {new_params3[[x]]}
+
+df <- data.frame("Params" = params_to_change, "Old" = apply(as.matrix(params_to_change), 1, old),  "New" = apply(as.matrix(params_to_change), 1, new) )
+
+
+
+sorghum_result16_new <- Gro_solver(
+    sorghum_initial_values,
+    new_params2$par,
+    climate17,
+    sorghum_steady_state_modules,
+    sorghum_derivative_modules
+)
+
+sorghum_result17_new <- Gro_solver(
+    sorghum_initial_values,
+    new_params2$par,
+    climate17,
+    sorghum_steady_state_modules,
+    sorghum_derivative_modules
+)
+
+p1 <- ggplot() + geom_line(data = sorghum_result16_new, mapping = aes(x = doy, y = Leaf + Stem, color = "Model")) +
+  geom_point(data  = yield[which(yield$site_id == "EF"),], aes(x = doy, y = yield, color = "Actual")) + labs(title = "Training 16", caption = Statistics(yield, sorghum_result16_new, c("site_id"), c("EF"), c("Stem", "Leaf"))$str) + scale_color_manual(name = "Data Source",values = c("blue", "black"))
+## plot of sorghum result 17 with the yield from sites other than EF (2017 yield data)
+p2 <- ggplot() + geom_line(data = sorghum_result17_new, mapping = aes(x = doy, y = Leaf + Stem, color = "Model")) +
+  geom_point(data  = yield[which(yield$site_id == "EF_check"),], aes(x = doy, y = yield, color = "Actual")) + labs(title = "Test 17", caption = Statistics(yield, sorghum_result17_new, c("site_id"), c("EF_check"), c("Stem", "Leaf"))$str) + scale_color_manual(name = "Data Source",values = c("blue", "black"))
+
+p3 <- ggplot() + geom_line(data = sorghum_result17_new, mapping = aes(x = doy, y = Leaf + Stem, color = "Model")) +
+  geom_point(data  = yield[which(yield$site_id == "MW_trans_border"),], aes(x = doy, y = yield, color = "Actual")) + labs(title = "Test 17", caption = Statistics(yield, sorghum_result17_new, c("site_id"), c("MW_trans_border"), c("Stem", "Leaf"))$str) + scale_color_manual(name = "Data Source",values = c("blue", "black"))
+
+p4 <- ggplot() + geom_line(data = sorghum_result17_new, mapping = aes(x = doy, y = Leaf + Stem, color = "Model")) +
+  geom_point(data  = yield[which(yield$site_id != "EF"),], aes(x = doy, y = yield, color = "Actual")) + labs(title = "sorghum 17 vs. sites 17", caption = Statistics(yield, sorghum_result17_new, c("site_id"), list( c("EF_check", "MW_trans_border")), c("Stem", "Leaf"))$str) + scale_color_manual(name = "Data Source",values = c("blue", "black"))
+
+plot_grid(p1, p2, p3, p4, ncol = 1)
+```
+
+
+### Skill Measures and Graphs
+
+## Since the real and simulated data are often observed from 2 differrent datasets, and sometimes multiple columns are needed as addition of multiple columns("Leaf + Stem") maybe compared and also certain rows may only be needed based on site_id etc which can be provided by a logical similar to that provided to a subset function, time may not be available and need to be summarized at a doy level. rows1 can be (site_id == "EF") or (site_id %in% c("EF", "EF_check")). Ensure both has the same level of timevar either at hourly basis or at doy base. If multiple observations exist at a certain doy, we take the mean per doy prior to evaluating. (There is a possibility that the mean may not be an exact summary representation.)
+
+
+## Two Variable LAI and yield optimization:
+
+
+
+
+
+
+
+
+
+
+
+```{r join, echo =  FALSE}
+df_inner_join <- function(actualData, modelResult){
+  byDay <- modelResult %>% 
+    group_by(doy) %>%
+    summarize(meanYield = mean(Leaf) + mean(Stem)) #makes a new dataframe that gives the average yield per day (over all 24 values in the model_result dataframe)
+  #Leaf + Stem is specific to sorghum and needs to be changed for other crops
+  innerJoinDf <- inner_join(byDay,actualData,by = c("doy" = "date")) #joins the two dataframes so we can compare values and run stats
+  innerJoinDf <- mutate(innerJoinDf,actualMinusModel = ActualMeanYield - meanYield) #makes a column for actual data minus model data
+  innerJoinDf <- mutate(innerJoinDf,actualMinusModelAbs = abs(actualMinusModel)) #makes a column for absolute value of difference
+  innerJoinDf <- mutate(innerJoinDf,diffSquares = actualMinusModel * actualMinusModel) #makes a column for the square of the difference
+  innerJoinDf <- mutate(innerJoinDf,absPercentError = actualMinusModelAbs/ActualMeanYield * 100) #makes a column for absolute value of percentage difference
+  innerJoinDf <- mutate(innerJoinDf,chiSquareToSum = diffSquares/ActualMeanYield) #makes a column for square of difference over actual value (for chi square calculation)
+  return(innerJoinDf)
+}
+
+
+#function returns a graph of the model data with the actual data
+getGraph <- function(siteId,model_result) {
+  siteData = subset(yield, yield$site_id==siteId) #filter by site_id
+  # fullJoinDf <- full_join(model_result, siteData, by = c("doy" = "doy")) #joins the two dataframes so we can graph on the same axes
+  return(ggplot() + #time as x-axis
+          geom_point(data = model_result, aes(x = doy, y = (Leaf+Stem), color = "BioCro Model")) + #model data
+          geom_point(data = siteData, aes(x = doy, y = above_ground_mass, color = paste(siteId,"Actual Yield"))) + #actual data from siteId
+           xlab("Day of Year") + #x-axis label
+           ylab("Leaf and Stem Combined Mass (Mg/ha)") + #y-axis label
+          labs(title = paste("Sorghum Model Yield vs. Actual Data from",siteId,"Site"), #graph title
+                caption = Statistics(siteId,model_result)) + #put stats in caption
+           scale_color_manual(name = "Data Source",values = c("blue", "black")) + #model in blue, actual in black
+           theme(legend.position = "bottom")) #put legend at bottom
+}
+
+
+#different site_ids
+ids = list("EF","EF_check","MW_trans_border")
+
+#make a pdf file graph for each site_id
+for(id in ids){
+  pdf(
+    file = paste0(id,".pdf"),
+    width = 7,          # inches
+    height = 6,         # inches
+    useDingbats = FALSE # make sure symbols are rendered properly in the PDF
+  )
+  
+  print(getGraph(id,sorghum_result))
+  
+  dev.off()
+}
+```
