@@ -1,0 +1,85 @@
+site_id	range	row	date	time_point	above_ground_mass	below_ground_mass	row_length	row_spacing	genotype_name
+EF	14	130	8/4/16	q	0.662		1	0.762	Pacesetter
+EF	8	130	8/4/16	q	0.6		1	0.762	Pacesetter
+EF	9	42	8/4/16	q	0.66		1	0.762	Pacesetter
+EF	3	42	8/4/16	q	0.784		1	0.762	Pacesetter
+EF	18	42	8/26/16	w	1.739		1.5	0.762	Pacesetter
+EF	10	130	8/26/16	w	1.7316		1.5	0.762	Pacesetter
+EF	16	130	8/26/16	w	2.2808		1.5	0.762	Pacesetter
+EF	9	86	8/26/16	w	2.2944		1.5	0.762	Pacesetter
+EF	6	42	9/28/16	x	3.202		1	0.762	Pacesetter
+EF	9	86	9/28/16	x	4.662		1	0.762	Pacesetter
+EF	3	86	9/28/16	x	4.598		1	0.762	Pacesetter
+EF	22	130	9/28/16	x	3.91		1	0.762	Pacesetter
+MW_trans_border	4	5	7/6/17	b	0.069	0.0252	1.5	0.5334	PI660597
+MW_trans_border	8	5	7/6/17	b	0.041	0.0166	1.5	0.5334	PI276801
+MW_trans_border	6	5	7/6/17	b	0.0652	0.0278	1.5	0.5334	PI330897
+MW_trans_border	2	5	7/6/17	b	0.0284	0.0138	1.5	0.5334	PI291084
+MW_trans_border	2	3	6/27/17	a	0.0066		1.5	0.5334	Pacesetter
+MW_trans_border	8	3	6/27/17	a	0.0078	0.0046	1.5	0.5334	PI453848
+MW_trans_border	4	3	6/27/17	a	0.0132	0.0056	1.5	0.5334	PI453036
+MW_trans_border	6	3	6/27/17	a	0.013	0.0064	1.5	0.5334	PI521181
+MW_trans_border	9	4	7/27/17	c	0.365		1.17	0.508	PI330267
+MW_trans_border	5	4	7/27/17	c	0.396		1.17	0.508	PI271233
+MW_trans_border	7	4	7/27/17	c	0.418		1.17	0.508	PI148089
+MW_trans_border	3	4	7/27/17	c	0.317		1.17	0.508	PI514291
+EF_check	2	1_2	7/15/17	d	0.132		1	0.762	CHR-SPX
+EF_check	8	1_2	7/15/17	d	0.233		1	0.762	CHR-SPX
+EF_check	13	1_2	7/15/17	d	0.295		1	0.762	CHR-SPX
+EF_check	17	1_2	7/15/17	d	0.161		1	0.762	CHR-SPX
+EF_check	24	1_2	7/15/17	d	0.15		1	0.762	CHR-SPX
+EF_check	5	1_2	7/15/17	d	0.194		1	0.762	Pacesetter hybrid
+EF_check	7	1_2	7/15/17	d	0.167		1	0.762	Pacesetter hybrid
+EF_check	11	1_2	7/15/17	d	0.103		1	0.762	Pacesetter hybrid
+EF_check	19	1_2	7/15/17	d	0.213		1	0.762	Pacesetter hybrid
+EF_check	25	1_2	7/15/17	d	0.275		1	0.762	Pacesetter hybrid
+EF_check	3	1_2	7/15/17	d	0.095		1	0.762	Top76-6
+EF_check	9	1_2	7/15/17	d	0.148		1	0.762	Top76-6
+EF_check	12	1_2	7/15/17	d	0.077		1	0.762	Top76-6
+EF_check	20	1_2	7/15/17	d	0.127		1	0.762	Top76-6
+EF_check	22	1_2	7/15/17	d	0.18		1	0.762	Top76-6
+EF_check	4	1_2	7/15/17	d	0.113		1	0.762	Pacesetter-BMR
+EF_check	10	1_2	7/15/17	d	0.197		1	0.762	Pacesetter-BMR
+EF_check	14	1_2	7/15/17	d	0.1		1	0.762	Pacesetter-BMR
+EF_check	16	1_2	7/15/17	d	0.158		1	0.762	Pacesetter-BMR
+EF_check	21	1_2	7/15/17	d	0.254		1	0.762	Pacesetter-BMR
+EF_check	6	1_2	7/15/17	d	0.105		1	0.762	ES5150
+EF_check	15	1_2	7/15/17	d	0.112		1	0.762	ES5150
+EF_check	18	1_2	7/15/17	d	0.217		1	0.762	ES5150
+EF_check	23	1_2	7/15/17	d	0.141		1	0.762	ES5150
+EF_check	26	1_2	7/15/17	d	0.177		1	0.762	ES5150
+EF_check	2	3_4	8/10/17	e	0.915		1	0.762	CHR-SPX
+EF_check	8	3_4	8/10/17	e	0.89		1	0.762	CHR-SPX
+EF_check	13	3_4	8/10/17	e	0.316		1	0.762	CHR-SPX
+EF_check	17	3_4	8/10/17	e	0.738		1	0.762	CHR-SPX
+EF_check	24	3_4	8/10/17	e	0.669		1	0.762	CHR-SPX
+EF_check	5	3_4	8/10/17	e	0.362		1	0.762	Pacesetter hybrid
+EF_check	7	3_4	8/10/17	e	0.503		1	0.762	Pacesetter hybrid
+EF_check	11	3_4	8/10/17	e	0.467		1	0.762	Pacesetter hybrid
+EF_check	19	3_4	8/10/17	e	0.52		1	0.762	Pacesetter hybrid
+EF_check	25	3_4	8/10/17	e	0.915		1	0.762	Pacesetter hybrid
+EF_check	3	3_4	8/10/17	e	0.849		1	0.762	Top76-6
+EF_check	9	3_4	8/10/17	e	0.784		1	0.762	Top76-6
+EF_check	12	3_4	8/10/17	e	0.9		1	0.762	Top76-6
+EF_check	20	3_4	8/10/17	e	1.026		1	0.762	Top76-6
+EF_check	22	3_4	8/10/17	e	0.632		1	0.762	Top76-6
+EF_check	4	3_4	8/10/17	e	0.553		1	0.762	Pacesetter-BMR
+EF_check	10	3_4	8/10/17	e	0.482		1	0.762	Pacesetter-BMR
+EF_check	14	3_4	8/10/17	e	0.908		1	0.762	Pacesetter-BMR
+EF_check	16	3_4	8/10/17	e	0.877		1	0.762	Pacesetter-BMR
+EF_check	21	3_4	8/10/17	e	0.685		1	0.762	Pacesetter-BMR
+EF_check	6	3_4	8/10/17	e	0.512		1	0.762	ES5150
+EF_check	15	3_4	8/10/17	e	0.572		1	0.762	ES5150
+EF_check	18	3_4	8/10/17	e	0.377		1	0.762	ES5150
+EF_check	23	3_4	8/10/17	e	1.424		1	0.762	ES5150
+EF_check	26	3_4	8/10/17	e	0.501		1	0.762	ES5150
+EF_check	2	5	9/27/17	f	2.044		0.7239	0.762	CHR-SPX
+EF_check	3	5	9/27/17	f	2.555		1.1811	0.762	Top76-6
+EF_check	4	5	9/27/17	f	1.188		1.1811	0.762	Pacesetter-BMR
+EF_check	5	5	9/27/17	f	0.994		1.1811	0.762	Pacesetter hybrid
+EF_check	6	5	9/27/17	f	1.108		1.1811	0.762	ES5150
+EF_check	7	5	9/27/17	f	1.606		1.1811	0.762	Pacesetter hybrid
+EF_check	8	5	9/27/17	f	2.222		1.1811	0.762	CHR-SPX
+EF_check	9	5	9/27/17	f	2.964		1.1811	0.762	Top76-6
+EF_check	10	5	9/27/17	f	2.335		1.1811	0.762	Pacesetter-BMR
+EF_check	15	5	9/27/17	f	2.146		1.1811	0.762	ES5150

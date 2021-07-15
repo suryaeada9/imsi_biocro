@@ -1,0 +1,48 @@
+Friday Meeting:
+- Justin  (Cro modeling)
+- Scott (Math major + Computer Science)
+- Stark (UofW)
+- Surya
+- Deepak (Assistant Prof at IIT Kharagpur)
+- Yufeng (Post Doc at UIUC from February)
+- Meghan (Assistant Prof at Environmental Engineering)
+- Daniel (Rising Junior, Intern (physics major))
+-  Terrence (Rising Senior, Intern (Biology major))
+- Seldon (PhD grad at Justin's lab, Chemistry and Molecular Engineering)
+- Toyosi (McGraths lab, Botany, Biocro  modeling)
+- Ed Lochoski (Post Doc for 2 years, ex-physicist)
+
+Agendas: to keep track of the update.
+- Surya and Stark will be working on quantitative
+skill measures. Model quality can also be then written in papers.
+- Daniel will work on how light can be driven through canopy for photosynthesis
+Terrence will be working on soybean development model. will do comparisons of
+model and reparameterize.
+- Toyosi is going to work on nitrogen distribution through the canopy. how much is going through seeds.
+(similar to carbon allocation but with nitrogen). Modeling transporters and all. (Nitrogen Partitioning
+similar to carbon partitioning? deltac?)
+
+Agenda document: got access.
+- Ed Lochoski: I have a theory that "Cro" comes from "Gro" in "C", and
+"Gro" is just commonly used in growth models because in the ancient days,
+there weren't enough characters to write "Grow".
+
+- BioCro "Gro_Solver" renaming
+- Marketing of Biocro
+
+- Orientation on github::page
+- Ed to send a vignette
+- There is a building the vignette
+- https://ebimodeling.github.io/biocro-documentation/
+
+
+
+
+https://www.ecosia.org/
+R package:  Description, NameSpace, and License, src directory for other languages.
+thermal_linear.h is an easy example with documentation.
+
+
+- One function - Gro_Solver and run the models and finding a skill measure.
+- weather05 or some other dataset suggestion from Ed
+- Meeting on Monday to start work.  
