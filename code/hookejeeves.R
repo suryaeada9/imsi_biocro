@@ -189,7 +189,7 @@ sorghum_parameters_logistic = with(list(), {
     et_equation                 0
     Gs_min                      1e-3
     heightf                     3
-    iSp                         1.7
+    iSp                         3
     kd                          0.1
     kparm                       0.7
     kpLN                        0.2
@@ -237,7 +237,7 @@ sorghum_parameters_logistic = with(list(), {
     soil_transmission           0.01
     soil_type_indicator         6
     specific_heat_of_air        1010
-    Sp_thermal_time_decay       0
+    Sp_thermal_time_decay       0.0004
     stefan_boltzman             5.67e-8
     tbase                       0
     topt_lower                  21
@@ -247,9 +247,9 @@ sorghum_parameters_logistic = with(list(), {
     timestep                    1
     TTemr                       50
     TTveg                       750
-    TTrep                       3500
+    TTrep                       1450
     upperT                      37.5
-    vmax1                       55
+    vmax1                       53
     vmax_n_intercept            0
     water_stress_approach       1"
   
@@ -292,15 +292,28 @@ get_climate <- function(Year,startdate){
 climate_2016 <- get_climate(2016,167)
 climate_2017 <- get_climate(2017,151)
 
+climate_2018 = read.csv(file.path("C://Users/stark/OneDrive/Documents2021/biocro-dev", 'EF2018_weather.csv'))
+climate_2019 = read.csv(file.path("C://Users/stark/OneDrive/Documents2021/biocro-dev", 'EF2019_weather.csv'))
+climate_2018 <- climate_2018 %>% filter(doy>158)
+climate_2019 <- climate_2019 %>% filter(doy>170)
+
 #returns the climate for a given year
 yrClimate <- function(year){
   if(year==2016)
   {
     return(climate_2016)
   }
-  else
+  else if(year==2017)
   {
     return(climate_2017)
+  }
+  else if(year==2018)
+  {
+    return(climate_2018)
+  }
+  else
+  {
+    return(climate_2019)
   }
 }
 
@@ -369,20 +382,24 @@ lidar_lai1 = within(lidar_lai1, {
 
 lidar_lai1[['site_id']] <- "EF"
 
-View(data_with_leaf)
+lidar_lai1[['LAI']] <- lidar_lai1[['lai']]
+
+lidar_lai1 <- subset(lidar_lai1, select = -c(lai) )
+
+View(lidar_lai1)
 
 
 data_with_leaf <- inner_join(biomass_yield1,leaf_area1,by = c('site_id','doy','year','range','row_set'))
 
 #calculate leaf area index from leaf area
-data_with_leaf[['lai']] <- data_with_leaf[['leaf_area']] / (data_with_leaf[['row_length']] * data_with_leaf[['row_spacing']])
+data_with_leaf[['LAI']] <- data_with_leaf[['leaf_area']] / (data_with_leaf[['row_length']] * data_with_leaf[['row_spacing']])
 
 data_with_leaf[['first_row']] <- as.numeric(sub("_.*","",data_with_leaf[['row_set']]))
 
 
-all_lai <- full_join(data_with_leaf,lidar_lai1,c('site_id','doy','year','range','first_row','lai'))
+all_lai <- full_join(data_with_leaf,lidar_lai1,c('site_id','doy','year','range','first_row','LAI'))
 
-all_lai <- all_lai %>% filter(!is.na(lai) & lai != Inf)
+all_lai <- all_lai %>% filter(!is.na(LAI) & LAI != Inf)
 
 View(all_lai)
 
@@ -392,74 +409,102 @@ data_with_partitioning[,'leaf_yield'] <- data_with_partitioning[,'leaf_mass'] / 
 data_with_partitioning[,'stem_yield'] <- data_with_partitioning[,'stem_mass'] / (data_with_partitioning[,'leaf_mass'] + data_with_partitioning[,'stem_mass']) * data_with_partitioning[,'yield_Mg_ha']
 
 data_with_partitioning <- data_with_partitioning %>% filter(leaf_yield!=Inf & !is.na(leaf_yield))
+data_with_partitioning[['first_row']] <- data_with_partitioning[['first_row.x']]
+data_with_partitioning <- subset(data_with_partitioning,select = -c(first_row.x,first_row.y))
 
 #all 2016 data
 actual_leaf_stem_2016 <- data_with_partitioning %>%
-  filter(year == 2016) %>%
+  filter(year == 2016)
+
+mean_var_leaf_stem_2016 <- actual_leaf_stem_2016 %>%
   group_by(doy) %>%
-  summarize(ActualMeanLeaf = mean(leaf_yield), ActualMeanStem = mean(stem_yield))
+  summarize(ActualMeanLeaf = mean(leaf_yield), VarianceLeaf = var(leaf_yield), ActualMeanStem = mean(stem_yield), VarianceStem = var(stem_yield))
 
 actual_yield_2016 <- all_yield %>%
-  filter(year == 2016) %>%
+  filter(year == 2016)
+
+mean_var_yield_2016 <- actual_yield_2016 %>%
   group_by(doy) %>%
-  summarize(ActualYield = mean(yield_Mg_ha))
+  summarize(ActualYield = mean(yield_Mg_ha), VarianceYield = var(yield_Mg_ha))
 
 actual_leaf_area_2016 <- all_lai %>%
-  filter(year == 2016) %>%
+  filter(year == 2016)
+
+mean_var_leaf_area_2016 <- actual_leaf_area_2016 %>%
   group_by(doy) %>%
-  summarize(ActualMeanLeafAreaIndex = mean(lai))
+  summarize(ActualMeanLeafAreaIndex = mean(LAI), VarianceLAI = var(LAI))
 
 #all 2017 data
 actual_leaf_stem_2017 <- data_with_partitioning %>%
-  filter(year == 2017) %>%
+  filter(year == 2017)
+
+mean_var_leaf_stem_2017 <- actual_leaf_stem_2017 %>%
   group_by(doy) %>%
-  summarize(ActualMeanLeaf = mean(leaf_yield), ActualMeanStem = mean(stem_yield))
+  summarize(ActualMeanLeaf = mean(leaf_yield), VarianceLeaf = var(leaf_yield), ActualMeanStem = mean(stem_yield), VarianceStem = var(stem_yield))
 
 actual_yield_2017 <- all_yield %>%
-  filter(year == 2017) %>%
+  filter(year == 2017)
+
+mean_var_yield_2017 <- actual_yield_2017 %>%
   group_by(doy) %>%
-  summarize(ActualYield = mean(yield_Mg_ha))
+  summarize(ActualYield = mean(yield_Mg_ha), VarianceYield = var(yield_Mg_ha))
 
 actual_leaf_area_2017 <- all_lai %>%
-  filter(year == 2017) %>%
-  group_by(doy) %>%
-  summarize(ActualMeanLeafAreaIndex = mean(lai))
+  filter(year == 2017)
 
-View(actual_yield_2017)
+mean_var_leaf_area_2017 <- actual_leaf_area_2017 %>%
+  group_by(doy) %>%
+  summarize(ActualMeanLeafAreaIndex = mean(LAI), VarianceLAI = var(LAI))
 
 #all 2018 data
 actual_leaf_stem_2018 <- data_with_partitioning %>%
-  filter(year == 2018) %>%
+  filter(year == 2018)
+
+mean_var_leaf_stem_2018 <- actual_leaf_stem_2018 %>%
   group_by(doy) %>%
-  summarize(ActualMeanLeaf = mean(leaf_yield), ActualMeanStem = mean(stem_yield))
+  summarize(ActualMeanLeaf = mean(leaf_yield), VarianceLeaf = var(leaf_yield), ActualMeanStem = mean(stem_yield), VarianceStem = var(stem_yield))
 
 actual_yield_2018 <- all_yield %>%
-  filter(year == 2018) %>%
+  filter(year == 2018)
+
+mean_var_yield_2018 <- actual_yield_2018 %>%
   group_by(doy) %>%
-  summarize(ActualYield = mean(yield_Mg_ha))
+  summarize(ActualYield = mean(yield_Mg_ha), VarianceYield = var(yield_Mg_ha))
 
 actual_leaf_area_2018 <- all_lai %>%
-  filter(year == 2018) %>%
+  filter(year == 2018)
+
+mean_var_leaf_area_2018 <- actual_leaf_area_2018 %>%
   group_by(doy) %>%
-  summarize(ActualMeanLeafAreaIndex = mean(lai))
+  summarize(ActualMeanLeafAreaIndex = mean(LAI), VarianceLAI = var(LAI))
 
 #all 2019 data
 actual_leaf_stem_2019 <- data_with_partitioning %>%
-  filter(year == 2019) %>%
+  filter(year == 2019)
+
+mean_var_leaf_stem_2019 <- actual_leaf_stem_2019 %>%
   group_by(doy) %>%
-  summarize(ActualMeanLeaf = mean(leaf_yield), ActualMeanStem = mean(stem_yield))
+  summarize(ActualMeanLeaf = mean(leaf_yield), VarianceLeaf = var(leaf_yield), ActualMeanStem = mean(stem_yield), VarianceStem = var(stem_yield))
 
 actual_yield_2019 <- all_yield %>%
-  filter(year == 2019) %>%
+  filter(year == 2019)
+
+mean_var_yield_2019 <- actual_yield_2019 %>%
   group_by(doy) %>%
-  summarize(ActualYield = mean(yield_Mg_ha))
+  summarize(ActualYield = mean(yield_Mg_ha), VarianceYield = var(yield_Mg_ha))
 
 actual_leaf_area_2019 <- all_lai %>%
-  filter(year == 2019) %>%
-  group_by(doy) %>%
-  summarize(ActualMeanLeafAreaIndex = mean(lai))
+  filter(year == 2019)
 
-View(actual_leaf_stem_2016)
+mean_var_leaf_area_2019 <- actual_leaf_area_2019 %>%
+  group_by(doy) %>%
+  summarize(ActualMeanLeafAreaIndex = mean(LAI), VarianceLAI = var(LAI))
+
+View(actual_leaf_stem_2018)
+
+#These functions are a little clunky, but R doesn't do a good job of keeping a list of dataframes, or a dictionary of dataframes
+#Those would be what we need to avoid these functions
+#Alternatively, we could do what Surya's code does, which is eval(parse()), but that seems to have unpredictable results sometimes
 
 yrLeafStem <- function(year){
   if(year==2016)
@@ -477,6 +522,25 @@ yrLeafStem <- function(year){
   else
   {
     return(actual_leaf_stem_2019)
+  }
+}
+
+yrMeanVarLeafStem <- function(year){
+  if(year==2016)
+  {
+    return(mean_var_leaf_stem_2016)
+  }
+  else if(year==2017)
+  {
+    return(mean_var_leaf_stem_2017)
+  }
+  else if(year==2018)
+  {
+    return(mean_var_leaf_stem_2018)
+  }
+  else
+  {
+    return(mean_var_leaf_stem_2019)
   }
 }
 
@@ -499,6 +563,25 @@ yrLeafArea <- function(year){
   }
 }
 
+yrMeanVarLeafArea <- function(year){
+  if(year==2016)
+  {
+    return(mean_var_leaf_area_2016)
+  }
+  else if(year==2017)
+  {
+    return(mean_var_leaf_area_2017)
+  }
+  else if(year==2018)
+  {
+    return(mean_var_leaf_area_2018)
+  }
+  else
+  {
+    return(mean_var_leaf_area_2019)
+  }
+}
+
 yrYield <- function(year){
   if(year==2016)
   {
@@ -518,50 +601,96 @@ yrYield <- function(year){
   }
 }
 
+yrMeanVarYield <- function(year){
+  if(year==2016)
+  {
+    return(mean_var_yield_2016)
+  }
+  else if(year==2017)
+  {
+    return(mean_var_yield_2017)
+  }
+  else if(year==2018)
+  {
+    return(mean_var_yield_2018)
+  }
+  else
+  {
+    return(mean_var_yield_2019)
+  }
+}
+
+#tried to model mean to variance for yield and LAI
+#there doesn't seem to be a great model
+#LAI could almost be linear, but we're not sure
+library(plyr)
+doys <- count(actual_yield_2017,"doy") %>% filter(freq>=30)
+n <- nrow(doys)
+mean_var_yield_sig_2017 <- data.frame()
+for(i in 1:n){
+  mean_var_yield_sig_2017 <- rbind(mean_var_yield_sig_2017,mean_var_yield_2017 %>% filter(doy==doys[i,1]))  
+}
+View(mean_var_yield_sig_2017)
+mean_var_yield_sig_2019 <- mean_var_yield_2019
+mean_var_yield_sig <- rbind(mean_var_yield_sig_2017,mean_var_yield_sig_2019)
+View(mean_var_yield_sig)
+graph_mean_var_yield <- ggplot(mean_var_yield_sig_2019,aes(x=ActualYield,y=VarianceYield)) + geom_point()
+x11()
+print(graph_mean_var_yield)
+
+mean_var_lai_sig <- rbind(mean_var_leaf_area_2017,mean_var_leaf_area_2019)
+View(mean_var_lai_sig)
+graph_mean_var_lai <- ggplot(mean_var_lai_sig,aes(x=ActualMeanLeafAreaIndex,y=VarianceLAI)) + geom_point()
+x11()
+print(graph_mean_var_lai)
+
 #precalculate some stuff about the actual and model data to make Statistics functions easier
-df_inner_join <- function(actualLeafStem,modelResult){
+df_inner_join <- function(actualLeafStem,actualMeanVar,modelResult){
   byDay <- modelResult %>% 
     group_by(doy) %>%
     summarize(meanLeaf = mean(Leaf), meanStem = mean(Stem)) #makes a new dataframe that gives the average yield per day (over all 24 values in the model_result dataframe)
   #Leaf + Stem is specific to sorghum and needs to be changed for other crops
-  innerJoinDf <- inner_join(byDay,actualLeafStem,by = c("doy")) #joins the two dataframes so we can compare values and run stats
-  innerJoinDf <- mutate(innerJoinDf,actualMinusModelLeaf = ActualMeanLeaf - meanLeaf) #makes a column for actual data minus model data
-  innerJoinDf <- mutate(innerJoinDf,actualMinusModelStem = ActualMeanStem - meanStem) #makes a column for actual data minus model data
+  temp <- inner_join(byDay,actualLeafStem,by = c("doy")) #joins the two dataframes so we can compare values and run stats
+  innerJoinDf <- inner_join(temp,actualMeanVar,by=c("doy")) #add the statistics
+  innerJoinDf <- mutate(innerJoinDf,actualMinusModelLeaf = leaf_yield - meanLeaf) #makes a column for actual data minus model data
+  innerJoinDf <- mutate(innerJoinDf,actualMinusModelStem = stem_yield - meanStem) #makes a column for actual data minus model data
   innerJoinDf <- mutate(innerJoinDf,actualMinusModelLeafAbs = abs(actualMinusModelLeaf)) #makes a column for absolute value of difference
   innerJoinDf <- mutate(innerJoinDf,actualMinusModelStemAbs = abs(actualMinusModelStem)) #makes a column for absolute value of difference
   innerJoinDf <- mutate(innerJoinDf,diffSquaresLeaf = actualMinusModelLeaf * actualMinusModelLeaf) #makes a column for the square of the difference
   innerJoinDf <- mutate(innerJoinDf,diffSquaresStem = actualMinusModelStem * actualMinusModelStem) #makes a column for the square of the difference
-  innerJoinDf <- mutate(innerJoinDf,absPercentErrorLeaf = actualMinusModelLeafAbs/ActualMeanLeaf * 100) #makes a column for absolute value of percentage difference
-  innerJoinDf <- mutate(innerJoinDf,absPercentErrorStem = actualMinusModelStemAbs/ActualMeanStem * 100) #makes a column for absolute value of percentage difference
-  innerJoinDf <- mutate(innerJoinDf,chiSquareToSumLeaf = diffSquaresLeaf/meanLeaf) #makes a column for square of difference over actual value (for chi square calculation)
-  innerJoinDf <- mutate(innerJoinDf,chiSquareToSumStem = diffSquaresStem/meanStem) #makes a column for square of difference over actual value (for chi square calculation)
+  innerJoinDf <- mutate(innerJoinDf,absPercentErrorLeaf = actualMinusModelLeafAbs/leaf_yield * 100) #makes a column for absolute value of percentage difference
+  innerJoinDf <- mutate(innerJoinDf,absPercentErrorStem = actualMinusModelStemAbs/stem_yield * 100) #makes a column for absolute value of percentage difference
+  innerJoinDf <- mutate(innerJoinDf,chiSquareToSumLeaf = diffSquaresLeaf/VarianceLeaf) #makes a column for square of difference over actual value (for chi square calculation)
+  innerJoinDf <- mutate(innerJoinDf,chiSquareToSumStem = diffSquaresStem/VarianceStem) #makes a column for square of difference over actual value (for chi square calculation)
   return(innerJoinDf)
 }
 
-df_inner_join_yield <- function(actualYield,modelResult){
+df_inner_join_yield <- function(actualYield,YieldMeanVar,modelResult){
   byDay <- modelResult %>% 
     group_by(doy) %>%
     summarize(meanYield = mean(Leaf) + mean(Stem)) #makes a new dataframe that gives the average yield per day (over all 24 values in the model_result dataframe)
   #Leaf + Stem is specific to sorghum and needs to be changed for other crops
-  innerJoinDf <- inner_join(byDay,actualYield,by = c("doy")) #joins the two dataframes so we can compare values and run stats
-  innerJoinDf <- mutate(innerJoinDf,actualMinusModel = ActualYield - meanYield) #makes a column for actual data minus model data
+  temp <- inner_join(byDay,actualYield,by = c("doy")) #joins the two dataframes so we can compare values and run stats
+  innerJoinDf <- inner_join(temp,YieldMeanVar,by=c("doy"))
+  innerJoinDf <- mutate(innerJoinDf,actualMinusModel = yield_Mg_ha - meanYield) #makes a column for actual data minus model data
   innerJoinDf <- mutate(innerJoinDf,actualMinusModelAbs = abs(actualMinusModel)) #makes a column for absolute value of difference
   innerJoinDf <- mutate(innerJoinDf,diffSquares = actualMinusModel * actualMinusModel) #makes a column for the square of the difference
-  innerJoinDf <- mutate(innerJoinDf,absPercentError = actualMinusModelAbs/ActualYield * 100) #makes a column for absolute value of percentage difference
-  innerJoinDf <- mutate(innerJoinDf,chiSquareToSum = diffSquares/meanYield) #makes a column for square of difference over actual value (for chi square calculation)
+  innerJoinDf <- mutate(innerJoinDf,absPercentError = actualMinusModelAbs/yield_Mg_ha * 100) #makes a column for absolute value of percentage difference
+  innerJoinDf <- mutate(innerJoinDf,chiSquareToSum = diffSquares/VarianceYield) #makes a column for square of difference over actual value (for chi square calculation)
   return(innerJoinDf)
 }
 
-df_inner_join_leaf_area <- function(actualData,modelResult){
+df_inner_join_leaf_area <- function(actualData,LAIMeanVar,modelResult){
   byDay <- modelResult %>% 
     group_by(doy) %>%
     summarize(leafAreaIndex = mean(lai)) #makes a new dataframe that gives the average lai per day (over all 24 values in the model_result dataframe)
-  innerJoinDf <- inner_join(byDay,actualData,by = c("doy")) #joins the two dataframes so we can compare values and run stats
-  innerJoinDf <- mutate(innerJoinDf,actualMinusModel = ActualMeanLeafAreaIndex - leafAreaIndex) #makes a column for actual data minus model data
+  temp <- inner_join(byDay,actualData,by = c("doy")) #joins the two dataframes so we can compare values and run stats
+  innerJoinDf <- inner_join(temp,LAIMeanVar,by=c("doy"))
+  innerJoinDf <- mutate(innerJoinDf,actualMinusModel = LAI - leafAreaIndex) #makes a column for actual data minus model data
   innerJoinDf <- mutate(innerJoinDf,actualMinusModelAbs = abs(actualMinusModel)) #makes a column for absolute value of difference
   innerJoinDf <- mutate(innerJoinDf,diffSquares = actualMinusModel * actualMinusModel) #makes a column for the square of the difference
-  innerJoinDf <- mutate(innerJoinDf,absPercentError = actualMinusModelAbs/ActualMeanLeafAreaIndex * 100) #makes a column for absolute value of percentage difference
-  innerJoinDf <- mutate(innerJoinDf,chiSquareToSum = diffSquares/ActualMeanLeafAreaIndex) #makes a column for square of difference over actual value (for chi square calculation)
+  innerJoinDf <- mutate(innerJoinDf,absPercentError = actualMinusModelAbs/LAI * 100) #makes a column for absolute value of percentage difference
+  innerJoinDf <- mutate(innerJoinDf,chiSquareToSum = diffSquares/VarianceLAI) #makes a column for square of difference over actual value (for chi square calculation)
   return(innerJoinDf)
 }
 
@@ -576,7 +705,7 @@ HorizontalStatistics <- function(x,sorghum_partial,year,dataset_str){
 #won't be accurate for RMSE and MAE, due to different scales of Leaf Area and Yield, but should be fine for MAPE and ChiSquare
 StatisticsLeafAndYield <- function(x,sorghum_partial,year){
   result = sorghum_partial(year)(x) #this runs the model on the current parameters
-  return(Statistics1(result,yrLeafStem(year),yrLeafArea(year),yrYield(year)))
+  return(Statistics1(result,year))
 }
 
 #normalize kLeaf1, kStem1, kRoot1, kGrain1, etc.
@@ -586,7 +715,8 @@ normalize_kVals <- function(current_params){
                       Stem = as.numeric(c(current_params$kStem1,current_params$kStem2,current_params$kStem3,current_params$kStem4,current_params$kStem5,current_params$kStem6)),
                       Root = as.numeric(c(current_params$kRoot1,current_params$kRoot2,current_params$kRoot3,current_params$kRoot4,current_params$kRoot5,current_params$kRoot6)),
                       Grain = as.numeric(c(current_params$kGrain1,current_params$kGrain2,current_params$kGrain3,current_params$kGrain4,current_params$kGrain5,current_params$kGrain6)))
-                      
+
+                        
   kVals <- mutate(kVals, Sum = Leaf + Stem + Root + Grain)
   kVals <- mutate(kVals, Leaf = Leaf/Sum)
   kVals <- mutate(kVals, Stem = Stem/Sum)
@@ -777,7 +907,7 @@ new_parameters <- function(params_to_change,lower_bounds,upper_bounds,current_pa
 }
 
 #optimizes lai and yield fit simultaneously
-new_parameters_logistic <- function(params_to_change,lower_bounds,upper_bounds,current_params,stat_to_minimize,year){
+new_parameters_logistic <- function(params_to_change,lower_bounds,upper_bounds,current_params,year,st){
   sorghum_partial <- function(year){
     
     return(partial_run_biocro(init_vals_logistic,current_params,
@@ -785,8 +915,8 @@ new_parameters_logistic <- function(params_to_change,lower_bounds,upper_bounds,c
                                              sorghum_steady_state_modules_logistic,sorghum_derivative_modules_logistic,sorghum_integrator,params_to_change))
   }
   #st is stat: RMSE, MAE, MAPE, or ChiSquare
-  sorghum_stat <- function(x,st=stat_to_minimize){
-    return(StatisticsLeafAndYield(x,sorghum_partial,year)[,c(st)])
+  sorghum_stat <- function(x,stat=st){
+    return(as.numeric(StatisticsLeafAndYield(x,sorghum_partial,year)[,c(stat)]))
   }
   para <- as.numeric(unname(current_params[params_to_change]))
   ans <- hjkb(para,sorghum_stat,lower=lower_bounds,upper = upper_bounds)
@@ -866,39 +996,117 @@ new_params_final <- new_parameters_logistic(c("iSp","Sp_thermal_time_decay","alp
                                    "MAE",2016,"EF2016")
 View(new_params_final)
 
+
+conversion <- c('meanLeaf','meanStem','meanYield','meanLai')
+names(conversion) <- c('leaf_yield','stem_yield','yield_Mg_ha','LAI')
+
+
 #multivariable loss function
 Statistics4 <- function(model_result,year){
-  n <- nrow(actual_data)
-  lossTotal <- 0
-  for(i in 1:n){
-    doy_model <- model_result %>%
-      filter(doy = actual_data[i,'doy']) %>%
-      group_by(doy) %>%
-      summarize(meanYield = mean(Leaf) + mean(Stem), meanLeaf = mean(Leaf), meanStem = mean(Stem),meanLAI = mean(lai))
-    vec_actual <- c()
-    vec_model <- c()
-    if(!is.na(actual_data[i,'ActualMeanLeaf'])){
-      vec_actual <- c(actual_data[i,'ActualMeanLeaf'],actual_data[i,'ActualMeanStem'])
-      vec_model <- c(doy_model[1,'meanLeaf'],doy_model[1,'meanStem'])
+  temp <- full_join(yrLeafArea(year),yrYield(year),by=c('doy','site_id','year','range','first_row'))
+  temp <- full_join(temp,yrLeafStem(year),by=c('doy','site_id','year','range','first_row'))
+  actual_data <- subset(temp,select=c(doy,year,leaf_yield,stem_yield,yield_Mg_ha,LAI))
+  byDay <- model_result %>% 
+    group_by(doy) %>%
+    summarize(meanLeaf = mean(Leaf),meanStem = mean(Stem),meanYield = mean(Leaf) + mean(Stem),meanLai = mean(lai))
+  num_rows <- nrow(actual_data)
+  loss <- 0
+  for(i in 1:5){
+    Doy <- as.numeric(unname(actual_data[i,'doy']))
+    dayModel <- byDay %>% filter(doy==Doy)
+    covMat <- CovarianceMatrix(Doy,year)
+    list_names <- colnames(covMat)
+    actual_vec <- subset(actual_data[i,],select=list_names)
+    list_model_names <- c()
+    for(name in list_names){
+      list_model_names <- c(list_model_names,conversion[[name]])
     }
-    else if(!is.na(actual_data[i,'ActualYield'])){
-      vec_actual <- c(actual_data[i,'ActualYield'])
-      vec_model <- c(vdoy_model[1,'meanYield'])
-    }
-    if(!is.na(actual_data[i,'ActualMeanLeafAreaIndex'])){
-      vec_actual <- c(vec_actual,actual_data[i,'ActualMeanLeafAreaIndex'])
-      vec_model <- c(vec_model,doy_model[1,'meanLAI'])
-    }
-    matrix_actual <- matrix(vec_actual,nrow = 1)
-    matrix_model <- matrix()
+    model_vec <- subset(dayModel,select=list_model_names)
+    
+    diff <- actual_vec - model_vec
+    
+    hor_diff <- matrix(unlist(diff),nrow=1)
+    ver_diff <- matrix(unlist(diff),ncol=1)
+    loss <- loss + as.numeric(hor_diff %*% solve(CovarianceMatrix(Doy,year)) %*% ver_diff)
   }
+  return(loss)
+}
+
+
+#calculate the covariance matrix on a given day
+CovarianceMatrix <-function(Doy,year){
+  #order: (leaf and stem) OR yield, then lai
+  entries <- c()
+  rows <- 0
+  row_names <- c()
+  
+  dayLeafStem <- yrLeafStem(year) %>% filter(doy==Doy)
+  dayLAI <- yrLeafArea(year) %>% filter(doy==Doy)
+  if(nrow(dayLeafStem)>0){
+    rows <- rows + 2
+    row_names <- c(row_names,'leaf_yield','stem_yield')
+    entries <- c(entries,var(dayLeafStem[,'leaf_yield']))
+    covLS <- as.numeric(cov(dayLeafStem[,'leaf_yield'],dayLeafStem[,'stem_yield']))
+    entries <- c(entries,covLS)
+    
+    
+    dayLeafStemLAI <- inner_join(dayLeafStem,dayLAI,by=c('doy','year','range','first_row','site_id'))
+    if(nrow(dayLeafStemLAI)>0){
+      rows <- rows + 1
+      row_names <- c(row_names,'LAI')
+      covLLAI <-as.numeric(cov(dayLeafStemLAI[,'leaf_yield'],dayLeafStemLAI[,'LAI']))
+      entries <- c(entries,covLLAI)
+    }
+    
+    entries <- c(entries,covLS)
+    entries <- c(entries,var(dayLeafStem[,'stem_yield']))
+    if(nrow(dayLeafStemLAI)>0){
+      covSLAI <- as.numeric(cov(dayLeafStemLAI[,'stem_yield'],dayLeafStemLAI[,'LAI']))
+      entries <- c(entries,covSLAI)
+      entries <- c(entries,covLLAI)
+      entries <- c(entries,covSLAI)
+      entries <- c(entries,var(dayLAI[,'LAI']))
+    }
+  }
+  else{
+    dayYield <- yrYield(year) %>% filter(doy==Doy)
+    if(nrow(dayYield)>0){
+      rows <- rows + 1
+      row_names <- c(row_names,'yield_Mg_ha')
+      entries <- c(entries,var(dayYield[,'yield_Mg_ha']))
+      if(nrow(dayLAI>0)){
+        rows <- rows + 1
+        row_names <- c(row_names,'LAI')
+        dayYieldLAI <- inner_join(dayYield,dayLAI,by=c('doy','year','range','first_row','site_id'))
+        covYLAI <- as.numeric(cov(dayYieldLAI[,'yield_Mg_ha.x'],cov(dayYieldLAI[,'LAI'])))
+        entries <- c(entries,covYLAI)
+        entries <- c(entries,covYLAI)
+        entries <- c(entries,var(dayLAI[,'LAI']))
+      }
+    }
+    else{
+      rows <- rows + 1
+      row_names <- c(row_names,'LAI')
+      entries <- c(entries,var(dayLAI[,'LAI']))
+    }
+  }
+  
+  
+  return(matrix(entries,rows,rows,byrow = TRUE,dimnames=list(row_names,row_names)))
+  
 }
 
 #calculate RMSE, MAE, MAPE, and Chi Square for LAI, Leaf, and Stem
-Statistics1 <- function(model_result,actual_leaf_stem,actual_leaf_data,actual_yield){
-  innerJoinDf1 <- df_inner_join(actual_leaf_stem,model_result)
-  innerJoinDf2 <- df_inner_join_leaf_area(actual_leaf_data,model_result)
-  innerJoinDf3 <- df_inner_join_yield(actual_yield,model_result)
+Statistics1 <- function(model_result,year){
+  actual_leaf_stem <- yrLeafStem(year)
+  mean_var_leaf_stem <- yrMeanVarLeafStem(year)
+  actual_leaf_data <- yrLeafArea(year)
+  mean_var_leaf_area <- yrMeanVarLeafArea(year)
+  actual_yield <- yrYield(year)
+  mean_var_yield <- yrMeanVarYield(year)
+  innerJoinDf1 <- df_inner_join(actual_leaf_stem,mean_var_leaf_stem,model_result)
+  innerJoinDf2 <- df_inner_join_leaf_area(actual_leaf_data,mean_var_leaf_area,model_result)
+  innerJoinDf3 <- df_inner_join_yield(actual_yield,mean_var_yield,model_result)
 
   #find sums of a few columns for stats calculations
   SumOfDiffsSquared = sum(innerJoinDf1[,'diffSquaresLeaf']) + sum(innerJoinDf1[,'diffSquaresStem']) + sum(innerJoinDf2[,'diffSquares']) + sum(innerJoinDf3[,'diffSquares'])
@@ -1313,7 +1521,7 @@ getGraphLeafArea <- function(model_result,actual_yield,sub="") {
   
   return(ggplot(fullJoinDf,aes(time)) + #time as x-axis
            geom_point(aes(y = (lai), color = "BioCro Model")) + #model data
-           geom_point(aes(y = ActualMeanLeafAreaIndex, color = "Actual LAI")) + #actual data
+           geom_point(aes(y = LAI, color = "Actual LAI")) + #actual data
            xlab("Day of Year") + #x-axis label
            ylab("Leaf Area Index (unitless)") + #y-axis label
            labs(title = "Sorghum Model Leaf Area Index vs. Actual Data", #graph title
@@ -1334,7 +1542,7 @@ getGraphYield <- function(model_result,actual_yield,sub="") {
   
   return(ggplot(fullJoinDf,aes(time)) + #time as x-axis
            geom_point(aes(y = (Leaf + Stem), color = "BioCro Model")) + #model data
-           geom_point(aes(y = ActualYield, color = "Actual Yield")) + #actual data
+           geom_point(aes(y = yield_Mg_ha, color = "Actual Yield")) + #actual data
            xlab("Day of Year") + #x-axis label
            ylab("Leaf + Stem (Mg/ha)") + #y-axis label
            labs(title = "Sorghum Model Yield vs. Actual Data", #graph title
@@ -1346,14 +1554,20 @@ getGraphYield <- function(model_result,actual_yield,sub="") {
 
   
 #4 graphs side by side
-getGraphAll <- function(model_result,actual_leaf_stem,actual_leaf_area,actual_yield,subleaf="",subyield="") {
+getGraphAll <- function(year,model_result,subleaf="",subyield="") {
+  actual_leaf_stem <- yrLeafStem(year)
   fullJoinDf <- full_join(model_result,actual_leaf_stem,by = c("doy")) #joins the two dataframes so we can graph on the same axes
-  stats_df = Statistics1(model_result,actual_leaf_stem,actual_leaf_area,actual_yield)
+  stats_df = Statistics1(model_result,year)
   stats_str = "Statistics for Leaf Area, Leaf, Stem (combined) "
   for(stat in colnames(stats_df)){
     stats_str=paste0(stats_str,stat,": ",round(stats_df[1,stat],digits=2),"  ")
   }
+  
+  stats_str = paste(stats_str,"Multi-var Loss:",Statistics4(model_result,year))
   print(stats_str)
+  
+  actual_leaf_area <- yrLeafArea(year)
+  actual_yield <- yrYield(year)
   
   LeafArea = getGraphLeafArea(model_result,actual_leaf_area,sub=subleaf)
   
@@ -1361,7 +1575,7 @@ getGraphAll <- function(model_result,actual_leaf_stem,actual_leaf_area,actual_yi
   
   Leaf = ggplot(fullJoinDf,aes(time)) + #time as x-axis
     geom_point(aes(y = Leaf, color = "BioCro Model")) + #model data
-    geom_point(aes(y = ActualMeanLeaf, color = "Actual Leaf")) + #actual data
+    geom_point(aes(y = leaf_yield, color = "Actual Leaf")) + #actual data
     xlab("Day of Year") + #x-axis label
     ylab("Leaf (Mg/ha)") + #y-axis label
     labs(title = "Sorghum Model Leaf vs. Actual Data", #graph title
@@ -1371,7 +1585,7 @@ getGraphAll <- function(model_result,actual_leaf_stem,actual_leaf_area,actual_yi
   
   Stem = ggplot(fullJoinDf,aes(time)) + #time as x-axis
            geom_point(aes(y = Stem, color = "BioCro Model")) + #model data
-           geom_point(aes(y = ActualMeanStem, color = "Actual Stem")) + #actual data
+           geom_point(aes(y = stem_yield, color = "Actual Stem")) + #actual data
            xlab("Day of Year") + #x-axis label
            ylab("Stem (Mg/ha)") + #y-axis label
            labs(title = "Sorghum Model Stem vs. Actual Data", #graph title
@@ -1384,18 +1598,20 @@ getGraphAll <- function(model_result,actual_leaf_stem,actual_leaf_area,actual_yi
 }
 
 #input previously run parameters that we liked
-new_params_final_temp <- iSp1.7_Params_fitted_to_logistic_2017_minimizing_MAPE
-temp_parameters <- as.list(new_params_final_temp[2,])
+new_params_final_temp <- iSp5_Params_fitted_to_logistic_2017_minimizing_ChiSquare
+temp_parameters <- new_params_final_temp[2,]
 names(temp_parameters) <- new_params_final_temp[1,]
-temp_parameters$alphaLeaf <- 27
-temp_parameters$alphaStem <- 16
-temp_parameters$betaLeaf <- -13
-temp_parameters$betaRoot <- -21
-temp_parameters$betaStem <- 0
-temp_parameters$iSp <- 1.9
-temp_parameters$TTemr <- 61
-temp_parameters$TTveg <- 710
-temp_parameters$TTrep <- 6200
+temp_parameters$alphaLeaf <- 15
+temp_parameters$alphaRoot <- 17
+temp_parameters$alphaStem <- 15
+temp_parameters$betaLeaf <- 1
+temp_parameters$betaRoot <- -14
+temp_parameters$betaStem <- 9
+temp_parameters$Sp_thermal_time_decay <- 0.0004
+temp_parameters$iSp <- 2.9
+temp_parameters$TTemr <- 51.5
+temp_parameters$TTveg <- 2257
+temp_parameters$TTrep <- 2999
 View(temp_parameters)
 
 setwd("C://Users/stark/OneDrive/Documents2021/biocro-dev/with_partitioning_selector/fixed_0707")
@@ -1414,9 +1630,11 @@ View(old_model)
 run_and_print_graphs <- function(to_minimize,init_val,old_params,year_of_testset,params_to_change,lower,upper){
   
   new_params_final <- new_parameters_logistic(params_to_change,lower,upper,
-                                     old_params,to_minimize,year_of_testset)
+                                     old_params,year_of_testset,to_minimize)
   
-  for(yr in 2016:2017){
+  
+  
+  for(yr in 2016:2019){
     old_model <- run_biocro(
       init_vals_logistic,
       old_params,
@@ -1433,17 +1651,15 @@ run_and_print_graphs <- function(to_minimize,init_val,old_params,year_of_testset
     )
     #make a pdf file graph
     pdf(
-      file = paste0(init_val,"_preAndPostParam",yr,"_fit_partitioningLogistic_minimize",to_minimize,".pdf"),
+      file = paste0(init_val,"_preAndPostParam",yr,"_fit_partitioningLogistic",year_of_testset,"_minimize",to_minimize,".pdf"),
       width = 18,          # inches
       height = 15,         # inches
       useDingbats = FALSE # make sure symbols are rendered properly in the PDF
     )
-    pre <- getGraphAll(old_model,yrLeafStem(yr),yrLeafArea(yr),yrYield(yr),
-                       subleaf=paste(yr,"default parameters"),
+    pre <- getGraphAll(yr,old_model,subleaf=paste(yr,"default parameters"),
                        subyield=paste(yr,"default parameters"))
 
-    post <- getGraphAll(new_model,yrLeafStem(yr),yrLeafArea(yr),yrYield(yr),
-                        subleaf=paste(yr,"parameters fitted to",to_minimize),
+    post <- getGraphAll(yr,new_model,subleaf=paste(yr,"parameters fitted to",to_minimize),
                         subyield=paste(yr,"parameters fitted to",to_minimize))
     
     print(pre / post)
@@ -1454,37 +1670,39 @@ run_and_print_graphs <- function(to_minimize,init_val,old_params,year_of_testset
   #store the list of parameters for future reference
   write.table(old_params,file=paste0(init_val,"_Params.txt"))
   write.table(new_params_final,file=paste0(init_val,"_Params_fitted_to_logistic_",year_of_testset,"_minimizing_",to_minimize,".txt"))
+  
+  return(new_params_final)
 }
 
+View(new_params)
+
 print_graphs <- function(to_minimize,init_val,old_params,new_params,year_of_testset){
-  for(yr in 2016:2017){
+  for(yr in 2016:2019){
     old_model <- run_biocro(
-      sorghum_initial_values,
+      init_vals_logistic,
       old_params,
       yrClimate(yr),
-      sorghum_steady_state_modules,
-      sorghum_derivative_modules
+      sorghum_steady_state_modules_logistic,
+      sorghum_derivative_modules_logistic
     )
     new_model <- run_biocro(
-      sorghum_initial_values,
+      init_vals_logistic,
       new_params,
       yrClimate(yr),
-      sorghum_steady_state_modules,
-      sorghum_derivative_modules
+      sorghum_steady_state_modules_logistic,
+      sorghum_derivative_modules_logistic
     )
     #make a pdf file graph
     pdf(
-      file = paste0(init_val,"_preAndPostParam",yr,"_fit_partitioningSelector_minimize_",year_of_testset,"_",to_minimize,".pdf"),
+      file = paste0(init_val,"_preAndPostParam",yr,"_fit_partitioningLogistic_minimize_",year_of_testset,"_",to_minimize,".pdf"),
       width = 15,          # inches
       height = 15,         # inches
       useDingbats = FALSE # make sure symbols are rendered properly in the PDF
     )
-    pre <- getGraphAll(old_model,yrLeafStem(yr),yrLeafArea(yr),yrYield(yr),
-                       subleaf=paste(yr,"default parameters"),
+    pre <- getGraphAll(yr,old_model,subleaf=paste(yr,"default parameters"),
                        subyield=paste(yr,"default parameters"))
     
-    post <- getGraphAll(new_model,yrLeafStem(yr),yrLeafArea(yr),yrYield(yr),
-                        subleaf=paste(yr,"parameters fitted to",to_minimize),
+    post <- getGraphAll(yr,new_model,subleaf=paste(yr,"parameters fitted to",to_minimize),
                         subyield=paste(yr,"parameters fitted to",to_minimize))
     
     print(pre / post)
@@ -1503,24 +1721,25 @@ print_graphs <- function(to_minimize,init_val,old_params,new_params,year_of_test
 params_and_bounds <- data.frame("params" = c("iSp","Sp_thermal_time_decay","alphaRoot","alphaLeaf","alphaStem",
                                             "betaRoot","betaLeaf","betaStem",
                                             "TTemr","TTveg","TTrep"),
-                                "lower" = c(0.3,-1e-4,-10,-10,-10,
+                                "lower" = c(0.3,-5e-4,-10,-10,-10,
                                             -100,-100,-100,
-                                            10,300,301),
-                                "upper" = c(200,1e-4,
+                                            10,300,1000),
+                                "upper" = c(200,5e-4,
                                             100,100,100,
                                             10,10,10,
                                             10000,10001,10002))
 
-
-run_and_print_graphs("MAPE","iSp1.7",sorghum_parameters_logistic,2017,params_and_bounds[,'params'],c(0.3,-1e-4,-10,-10,-10,
+new_params <- run_and_print_graphs("ChiSquare","iSp2.9",temp_parameters,2017,params_and_bounds[,'params'],c(0.3,-5e-4,-10,-10,-10,
                                                                                                     -100,-100,-100,
-                                                                                                    10,300,301),c(200,1e-4,
+                                                                                                    10,300,1000),c(200,5e-4,
                                                                                                                   100,100,100,
                                                                                                                   10,10,10,
                                                                                                                   10000,10001,10002))
 
+View(new_params)
+new_params$TTrep <- 5000
 
-print_graphs("ChiSquare","iSp1.7_all",sorghum_parameters,new_parameters,2017)
+print_graphs("ChiSquare","iSp2.9_switch_TTrep",temp_parameters,new_params,2017)
 
 View(run_biocro(sorghum_initial_values,sorghum_parameters,yrClimate(2016),sorghum_steady_state_modules,sorghum_derivative_modules))
 
