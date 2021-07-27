@@ -353,6 +353,8 @@ all_yield <- full_join(biomass_yield1,above_ground_final_yield1,c('site_id','doy
 
 all_yield <- all_yield %>% filter(yield_Mg_ha != Inf & !is.na(yield_Mg_ha))
 
+View(all_yield)
+
 biomass_partitioning1 = within(biomass_partitioning1, {
   doy = lubridate::yday(as.Date(date))
 })
@@ -620,29 +622,7 @@ yrMeanVarYield <- function(year){
   }
 }
 
-#tried to model mean to variance for yield and LAI
-#there doesn't seem to be a great model
-#LAI could almost be linear, but we're not sure
-library(plyr)
-doys <- count(actual_yield_2017,"doy") %>% filter(freq>=30)
-n <- nrow(doys)
-mean_var_yield_sig_2017 <- data.frame()
-for(i in 1:n){
-  mean_var_yield_sig_2017 <- rbind(mean_var_yield_sig_2017,mean_var_yield_2017 %>% filter(doy==doys[i,1]))  
-}
-View(mean_var_yield_sig_2017)
-mean_var_yield_sig_2019 <- mean_var_yield_2019
-mean_var_yield_sig <- rbind(mean_var_yield_sig_2017,mean_var_yield_sig_2019)
-View(mean_var_yield_sig)
-graph_mean_var_yield <- ggplot(mean_var_yield_sig_2019,aes(x=ActualYield,y=VarianceYield)) + geom_point()
-x11()
-print(graph_mean_var_yield)
-
-mean_var_lai_sig <- rbind(mean_var_leaf_area_2017,mean_var_leaf_area_2019)
-View(mean_var_lai_sig)
-graph_mean_var_lai <- ggplot(mean_var_lai_sig,aes(x=ActualMeanLeafAreaIndex,y=VarianceLAI)) + geom_point()
-x11()
-print(graph_mean_var_lai)
+as.numeric(actual_yield_2017 %>% summarize(mean = mean(yield_Mg_ha)))
 
 #precalculate some stuff about the actual and model data to make Statistics functions easier
 df_inner_join <- function(actualLeafStem,actualMeanVar,modelResult){
@@ -662,6 +642,10 @@ df_inner_join <- function(actualLeafStem,actualMeanVar,modelResult){
   innerJoinDf <- mutate(innerJoinDf,absPercentErrorStem = actualMinusModelStemAbs/stem_yield * 100) #makes a column for absolute value of percentage difference
   innerJoinDf <- mutate(innerJoinDf,chiSquareToSumLeaf = diffSquaresLeaf/VarianceLeaf) #makes a column for square of difference over actual value (for chi square calculation)
   innerJoinDf <- mutate(innerJoinDf,chiSquareToSumStem = diffSquaresStem/VarianceStem) #makes a column for square of difference over actual value (for chi square calculation)
+  actual_mean_leaf <- as.numeric(actualLeafStem %>% summarize(mean = mean(leaf_yield)))
+  innerJoinDf <- mutate(innerJoinDf,totSquareToSumLeaf = (leaf_yield - actual_mean_leaf)^2)
+  actual_mean_stem <- as.numeric(actualLeafStem %>% summarize(mean = mean(stem_yield)))
+  innerJoinDf <- mutate(innerJoinDf,totSquareToSumStem = (stem_yield - actual_mean_stem)^2)
   return(innerJoinDf)
 }
 
@@ -677,6 +661,8 @@ df_inner_join_yield <- function(actualYield,YieldMeanVar,modelResult){
   innerJoinDf <- mutate(innerJoinDf,diffSquares = actualMinusModel * actualMinusModel) #makes a column for the square of the difference
   innerJoinDf <- mutate(innerJoinDf,absPercentError = actualMinusModelAbs/yield_Mg_ha * 100) #makes a column for absolute value of percentage difference
   innerJoinDf <- mutate(innerJoinDf,chiSquareToSum = diffSquares/VarianceYield) #makes a column for square of difference over actual value (for chi square calculation)
+  actual_mean_yield <- as.numeric(actualYield %>% summarize(mean = mean(yield_Mg_ha)))
+  innerJoinDf <- mutate(innerJoinDf,totSquareToSum = (yield_Mg_ha - actual_mean_yield)^2)
   return(innerJoinDf)
 }
 
@@ -691,6 +677,8 @@ df_inner_join_leaf_area <- function(actualData,LAIMeanVar,modelResult){
   innerJoinDf <- mutate(innerJoinDf,diffSquares = actualMinusModel * actualMinusModel) #makes a column for the square of the difference
   innerJoinDf <- mutate(innerJoinDf,absPercentError = actualMinusModelAbs/LAI * 100) #makes a column for absolute value of percentage difference
   innerJoinDf <- mutate(innerJoinDf,chiSquareToSum = diffSquares/VarianceLAI) #makes a column for square of difference over actual value (for chi square calculation)
+  actual_mean_lai <- as.numeric(actualData %>% summarize(mean = mean(LAI)))
+  innerJoinDf <- mutate(innerJoinDf,totSquareToSum = (LAI - actual_mean_lai)^2)
   return(innerJoinDf)
 }
 
@@ -1114,15 +1102,38 @@ Statistics1 <- function(model_result,year){
   SumOfAbsPercs = sum(innerJoinDf1[,'absPercentErrorLeaf']) + sum(innerJoinDf1[,'absPercentErrorLeaf']) + sum(innerJoinDf2[,'absPercentError']) + sum(innerJoinDf3[,'absPercentError'])
   
   #number of rows
-  n = nrow(innerJoinDf1) + nrow(innerJoinDf2) + nrow(innerJoinDf3)
+  n = nrow(innerJoinDf1) * 2 + nrow(innerJoinDf2) + nrow(innerJoinDf3)
   
   #stats calculations
   RMSE = sqrt(SumOfDiffsSquared/n)
   MAE = SumOfAbsDiffs/n
   MAPE = SumOfAbsPercs/n
   ChiSquare = sum(innerJoinDf1[,'chiSquareToSumLeaf']) + sum(innerJoinDf1[,'chiSquareToSumStem']) + sum(innerJoinDf2[,'chiSquareToSum']) + sum(innerJoinDf3[,'chiSquareToSum'])
+  ChiSquareNormed = ChiSquare/n
+  TotSquare = sum(innerJoinDf1[,'totSquareToSumLeaf']) + sum(innerJoinDf1[,'totSquareToSumStem']) + sum(innerJoinDf2[,'totSquareToSum']) + sum(innerJoinDf3[,'totSquareToSum'])
+  RSquared = 1- (SumOfDiffsSquared/TotSquare)
   
-  stats = data.frame(RMSE = c(RMSE), MAE = c(MAE), MAPE = c(MAPE), ChiSquare = c(ChiSquare))
+  Count1 = innerJoinDf1 %>% count(doy)
+  Count1 <- mutate(Count1,recip_sqrt = 1/sqrt(n))
+  Mahal1 <- innerJoinDf1 %>%
+    group_by(doy) %>%
+    summarize(MahalLeafSum = sqrt(sum(chiSquareToSumLeaf)),MahalStemSum = sqrt(sum(chiSquareToSumStem)))
+  MahalFinal1 <- mutate(full_join(Count1,Mahal1,by=c('doy')),MahalLeafNormed = MahalLeafSum/n,MahalStemNormed =MahalStemSum/n)
+  Count2 = innerJoinDf2 %>% count(doy)
+  Count2 <- mutate(Count2,recip_sqrt = 1/sqrt(n))
+  Mahal2 <- innerJoinDf2 %>%
+    group_by(doy) %>%
+    summarize(MahalLAISum = sqrt(sum(chiSquareToSum)))
+  MahalFinal2 <- mutate(full_join(Count2,Mahal2,by=c('doy')),MahalLAINormed = MahalLAISum/n)
+  Count3 = innerJoinDf3 %>% count(doy)
+  Count3 <- mutate(Count3,recip_sqrt = 1/sqrt(n))
+  factor_to_norm <- 1/(sum(Count1[,'recip_sqrt'])+sum(Count2[,'recip_sqrt'])+sum(Count3[,'recip_sqrt']))
+  Mahal3 <- innerJoinDf3 %>%
+    group_by(doy) %>%
+    summarize(MahalYieldSum = sqrt(sum(chiSquareToSum))/n)
+  MahalFinal3 <- mutate(full_join(Count3,Mahal3,by=c('doy')),MahalYieldNormed = MahalYieldSum/n)
+  Mahalanobis = (sum(MahalFinal1[,'MahalLeafNormed']) + sum(MahalFinal1[,'MahalStemNormed']) + sum(MahalFinal2[,'MahalLAINormed']) + sum(MahalFinal3[,'MahalYieldNormed'])) * factor_to_norm
+  stats = data.frame(RSquared = c(RSquared), RMSE = c(RMSE), MAE = c(MAE), MAPE = c(MAPE), MahalToSum = c(ChiSquare), MahalToSum_normed = c(ChiSquareNormed), Mahalanobis_normed = c(Mahalanobis))
   
   return(stats)
 }
@@ -1563,7 +1574,6 @@ getGraphAll <- function(year,model_result,subleaf="",subyield="") {
     stats_str=paste0(stats_str,stat,": ",round(stats_df[1,stat],digits=2),"  ")
   }
   
-  stats_str = paste(stats_str,"Multi-var Loss:",Statistics4(model_result,year))
   print(stats_str)
   
   actual_leaf_area <- yrLeafArea(year)
@@ -1598,23 +1608,27 @@ getGraphAll <- function(year,model_result,subleaf="",subyield="") {
 }
 
 #input previously run parameters that we liked
-new_params_final_temp <- iSp5_Params_fitted_to_logistic_2017_minimizing_ChiSquare
-temp_parameters <- new_params_final_temp[2,]
-names(temp_parameters) <- new_params_final_temp[1,]
-temp_parameters$alphaLeaf <- 15
-temp_parameters$alphaRoot <- 17
-temp_parameters$alphaStem <- 15
-temp_parameters$betaLeaf <- 1
-temp_parameters$betaRoot <- -14
-temp_parameters$betaStem <- 9
-temp_parameters$Sp_thermal_time_decay <- 0.0004
-temp_parameters$iSp <- 2.9
-temp_parameters$TTemr <- 51.5
-temp_parameters$TTveg <- 2257
-temp_parameters$TTrep <- 2999
+new_params_final_temp <- iter5_iSp2.9198_Params_fitted_to_2017_minimizing_MahalToSum
+new_params <- new_params_final_temp[2,]
+names(new_params) <- new_params_final_temp[1,]
+
+
+View(sorghum_parameters_logistic)
+temp_parameters <- new_params
+temp_parameters$alphaLeaf <- 57.5
+temp_parameters$alphaRoot <- -9.999992
+temp_parameters$alphaStem <- 8.4
+temp_parameters$betaLeaf <- -59
+temp_parameters$betaRoot <- -99
+temp_parameters$betaStem <- 9.99
+temp_parameters$Sp_thermal_time_decay <- 0.0002
+temp_parameters$iSp <- 2
+temp_parameters$TTemr <- 65
+temp_parameters$TTveg <- 1090
+temp_parameters$TTrep <- 5000
 View(temp_parameters)
 
-setwd("C://Users/stark/OneDrive/Documents2021/biocro-dev/with_partitioning_selector/fixed_0707")
+setwd("C://Users/stark/OneDrive/Documents2021/biocro-dev/with_partitioning_logistic/Mahalanobis_normed")
 
 old_model <- run_biocro(
   init_vals_logistic,
@@ -1723,28 +1737,31 @@ params_and_bounds <- data.frame("params" = c("iSp","Sp_thermal_time_decay","alph
                                             "TTemr","TTveg","TTrep"),
                                 "lower" = c(0.3,-5e-4,-10,-10,-10,
                                             -100,-100,-100,
-                                            10,300,1000),
+                                            10,300,301),
                                 "upper" = c(200,5e-4,
                                             100,100,100,
                                             10,10,10,
                                             10000,10001,10002))
 
-new_params <- run_and_print_graphs("ChiSquare","iSp2.9",temp_parameters,2017,params_and_bounds[,'params'],c(0.3,-5e-4,-10,-10,-10,
+new_params <- run_and_print_graphs("Mahalanobis_normed","iter3_iSp2",temp_parameters,2017,params_and_bounds[,'params'],c(0.3,-5e-4,-10,-10,-10,
                                                                                                     -100,-100,-100,
-                                                                                                    10,300,1000),c(200,5e-4,
+                                                                                                    10,300,301),c(200,5e-4,
                                                                                                                   100,100,100,
                                                                                                                   10,10,10,
                                                                                                                   10000,10001,10002))
 
-View(new_params)
+
 new_params$TTrep <- 5000
 
-print_graphs("ChiSquare","iSp2.9_switch_TTrep",temp_parameters,new_params,2017)
+model_2018 <- run_biocro(init_vals_logistic,new_params,yrClimate(2018),sorghum_steady_state_modules_logistic,sorghum_derivative_modules_logistic)
+Statistics1(model_2018,2018)
+
+print_graphs("Mahalanobis_normed","iter1_iSp3",sorghum_parameters_logistic,new_params,2017)
 
 View(run_biocro(sorghum_initial_values,sorghum_parameters,yrClimate(2016),sorghum_steady_state_modules,sorghum_derivative_modules))
 
 
-setwd("C://Users/stark/OneDrive/Documents2021/biocro-dev/with_partitioning_selector/with_more_data")
+setwd("C://Users/stark/OneDrive/Documents2021/biocro-dev/sorghum_mahalanobis")
 
 #runs with random starting values
 n <- nrow(params_and_bounds)
