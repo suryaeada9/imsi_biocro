@@ -1,5 +1,4 @@
 library(dfoptim)
-library(pryr)
 library(dplyr)
 
 library(BioCro)
@@ -168,6 +167,13 @@ sorghum_derivative_modules_logistic <- list(
 
 # Do the calculations inside an empty list so that temporary variables are not created in .Global.
 #logistic "default" parameters
+#TTemr is set to 50, because our starting date estimates seem very close to actual time of emergence
+#TTrep is set to 5000, since energy sorghum doesn't flower
+#estimated alphaLeaf, alphaRoot, alphaStem, betaLeaf, betaRoot, betaStem using averages taken from the paper linked in comments of partitioning_coefficient_logistic file
+#These aren't accurate estimates, since that paper is talking about soybeans and maize and crops very different from energy sorghum
+#Estimated iSp=3 and Sp_thermal_time_decay=0.0004 from https://www.researchgate.net/figure/Time-course-of-specific-leaf-area-SLA-panels-a-b-and-c-and-leaf-area-index-LAI_fig2_235797972
+#These iSp and Sp_thermal_time_decay starting values made the fitting a lot better
+#Took vmax1 as an average from the vmax file in the TERRA drive folder
 sorghum_parameters_logistic = with(list(), {
   datalines =
     "symbol                     value
@@ -247,7 +253,7 @@ sorghum_parameters_logistic = with(list(), {
     timestep                    1
     TTemr                       50
     TTveg                       750
-    TTrep                       1450
+    TTrep                       5000
     upperT                      37.5
     vmax1                       53
     vmax_n_intercept            0
@@ -262,10 +268,8 @@ sorghum_parameters_logistic = with(list(), {
 init_vals_logistic <- sorghum_initial_values
 init_vals_logistic[['DVI']] <- -1 #need DVI for initial values when running logistic model
 
-#climate data from Justin
+#climate data from TERRA drive folder
 climate = read.delim(file.path("C://Users/stark/OneDrive/Documents2021/biocro-dev", 'filled_climate.tsv'))
-#climate2016 = subset(climate, year == 2016 & doy > 167)  # According the these notes dated June 16, sorghum at SoyFACE had emerged, but not at the Energy Farm. It's a decent estimate.
-#climate2017 = subset(climate, year == 2017 & doy > 151)
 
 #unit conversion
 get_climate <- function(Year,startdate){
@@ -289,13 +293,12 @@ get_climate <- function(Year,startdate){
   
 }
 
-climate_2016 <- get_climate(2016,167)
-climate_2017 <- get_climate(2017,151)
-
+climate_2016 <- get_climate(2016,167) #got these starting dates from Justin
+climate_2017 <- get_climate(2017,151) #got these starting dates from Justin
 climate_2018 = read.csv(file.path("C://Users/stark/OneDrive/Documents2021/biocro-dev", 'EF2018_weather.csv'))
 climate_2019 = read.csv(file.path("C://Users/stark/OneDrive/Documents2021/biocro-dev", 'EF2019_weather.csv'))
-climate_2018 <- climate_2018 %>% filter(doy>158)
-climate_2019 <- climate_2019 %>% filter(doy>170)
+climate_2018 <- climate_2018 %>% filter(doy>158) #got these by going a few days before very small LAI values in the lidar lai file
+climate_2019 <- climate_2019 %>% filter(doy>170) #got these by going a few days before very small LAI values in the lidar lai file
 
 #returns the climate for a given year
 yrClimate <- function(year){
@@ -317,6 +320,7 @@ yrClimate <- function(year){
   }
 }
 
+#read in data
 biomass_yield1 <- read_excel("C:/Users/stark/OneDrive/Documents2021/biocro-dev/biomass-yield1.xlsx")
 above_ground_final_yield1 <- read_excel("C:/Users/stark/OneDrive/Documents2021/biocro-dev/above-ground-final-yield.xlsx")
 biomass_partitioning1 <- read_excel("C:/Users/stark/OneDrive/Documents2021/biocro-dev/biomass-partitioning1.xlsx")
@@ -324,8 +328,8 @@ leaf_area1 <- read_excel("C:/Users/stark/OneDrive/Documents2021/biocro-dev/leaf-
 lidar_lai1 <- read_excel("C:/Users/stark/OneDrive/Documents2021/biocro-dev/lidar-lai.xlsx")
 
 
+#format dates and other things about the data
 
-#this calculates doy in order to join to the model result data
 biomass_yield1 = within(biomass_yield1, {
   doy = lubridate::yday(as.Date(date))
 })
@@ -351,9 +355,10 @@ above_ground_final_yield1 = within(above_ground_final_yield1, {
 
 all_yield <- full_join(biomass_yield1,above_ground_final_yield1,c('site_id','doy','year','range','first_row','yield_Mg_ha'))
 
-all_yield <- all_yield %>% filter(yield_Mg_ha != Inf & !is.na(yield_Mg_ha))
+all_yield <- all_yield %>% filter(yield_Mg_ha != Inf & !is.na(yield_Mg_ha)) #get rid of null values
 
-View(all_yield)
+
+final_yield_only <- above_ground_final_yield1 %>% filter(yield_Mg_ha != Inf & !is.na(yield_Mg_ha))
 
 biomass_partitioning1 = within(biomass_partitioning1, {
   doy = lubridate::yday(as.Date(date))
@@ -365,7 +370,6 @@ biomass_partitioning1 = within(biomass_partitioning1, {
 
 biomass_partitioning1[['first_row']] <- as.numeric(sub("_.*","",biomass_partitioning1[['row_set']]))
 
-
 leaf_area1 = within(leaf_area1, {
   doy = lubridate::yday(as.Date(date))
 })
@@ -382,28 +386,24 @@ lidar_lai1 = within(lidar_lai1, {
   year = lubridate::year(as.Date(date))
 })
 
-lidar_lai1[['site_id']] <- "EF"
+lidar_lai1[['site_id']] <- "EF" #all years in lidar lai file are at EF
 
+#rename lai to LAI so as not to get confused with BioCro's predicted lai later
 lidar_lai1[['LAI']] <- lidar_lai1[['lai']]
-
 lidar_lai1 <- subset(lidar_lai1, select = -c(lai) )
-
-View(lidar_lai1)
 
 
 data_with_leaf <- inner_join(biomass_yield1,leaf_area1,by = c('site_id','doy','year','range','row_set'))
 
 #calculate leaf area index from leaf area
 data_with_leaf[['LAI']] <- data_with_leaf[['leaf_area']] / (data_with_leaf[['row_length']] * data_with_leaf[['row_spacing']])
-
 data_with_leaf[['first_row']] <- as.numeric(sub("_.*","",data_with_leaf[['row_set']]))
 
 
 all_lai <- full_join(data_with_leaf,lidar_lai1,c('site_id','doy','year','range','first_row','LAI'))
-
-all_lai <- all_lai %>% filter(!is.na(LAI) & LAI != Inf)
-
-View(all_lai)
+all_lai <- all_lai %>% filter(!is.na(LAI) & LAI != Inf) #get rid of null values
+#NOTE - in order to calculate MAPE for 2018 and not get an Inf value, we would need to add the condition that LAI > 1e-10
+#Otherwise, we are dividing by values too close to 0 in the MAPE calculation
 
 data_with_partitioning <- inner_join(all_yield,biomass_partitioning1,by=c('site_id','doy','year','range','row_set'))
 
@@ -414,215 +414,48 @@ data_with_partitioning <- data_with_partitioning %>% filter(leaf_yield!=Inf & !i
 data_with_partitioning[['first_row']] <- data_with_partitioning[['first_row.x']]
 data_with_partitioning <- subset(data_with_partitioning,select = -c(first_row.x,first_row.y))
 
-#all 2016 data
-actual_leaf_stem_2016 <- data_with_partitioning %>%
-  filter(year == 2016)
 
-mean_var_leaf_stem_2016 <- actual_leaf_stem_2016 %>%
-  group_by(doy) %>%
-  summarize(ActualMeanLeaf = mean(leaf_yield), VarianceLeaf = var(leaf_yield), ActualMeanStem = mean(stem_yield), VarianceStem = var(stem_yield))
+#calculate relevant data for each year
 
-actual_yield_2016 <- all_yield %>%
-  filter(year == 2016)
-
-mean_var_yield_2016 <- actual_yield_2016 %>%
-  group_by(doy) %>%
-  summarize(ActualYield = mean(yield_Mg_ha), VarianceYield = var(yield_Mg_ha))
-
-actual_leaf_area_2016 <- all_lai %>%
-  filter(year == 2016)
-
-mean_var_leaf_area_2016 <- actual_leaf_area_2016 %>%
-  group_by(doy) %>%
-  summarize(ActualMeanLeafAreaIndex = mean(LAI), VarianceLAI = var(LAI))
-
-#all 2017 data
-actual_leaf_stem_2017 <- data_with_partitioning %>%
-  filter(year == 2017)
-
-mean_var_leaf_stem_2017 <- actual_leaf_stem_2017 %>%
-  group_by(doy) %>%
-  summarize(ActualMeanLeaf = mean(leaf_yield), VarianceLeaf = var(leaf_yield), ActualMeanStem = mean(stem_yield), VarianceStem = var(stem_yield))
-
-actual_yield_2017 <- all_yield %>%
-  filter(year == 2017)
-
-mean_var_yield_2017 <- actual_yield_2017 %>%
-  group_by(doy) %>%
-  summarize(ActualYield = mean(yield_Mg_ha), VarianceYield = var(yield_Mg_ha))
-
-actual_leaf_area_2017 <- all_lai %>%
-  filter(year == 2017)
-
-mean_var_leaf_area_2017 <- actual_leaf_area_2017 %>%
-  group_by(doy) %>%
-  summarize(ActualMeanLeafAreaIndex = mean(LAI), VarianceLAI = var(LAI))
-
-#all 2018 data
-actual_leaf_stem_2018 <- data_with_partitioning %>%
-  filter(year == 2018)
-
-mean_var_leaf_stem_2018 <- actual_leaf_stem_2018 %>%
-  group_by(doy) %>%
-  summarize(ActualMeanLeaf = mean(leaf_yield), VarianceLeaf = var(leaf_yield), ActualMeanStem = mean(stem_yield), VarianceStem = var(stem_yield))
-
-actual_yield_2018 <- all_yield %>%
-  filter(year == 2018)
-
-mean_var_yield_2018 <- actual_yield_2018 %>%
-  group_by(doy) %>%
-  summarize(ActualYield = mean(yield_Mg_ha), VarianceYield = var(yield_Mg_ha))
-
-actual_leaf_area_2018 <- all_lai %>%
-  filter(year == 2018)
-
-mean_var_leaf_area_2018 <- actual_leaf_area_2018 %>%
-  group_by(doy) %>%
-  summarize(ActualMeanLeafAreaIndex = mean(LAI), VarianceLAI = var(LAI))
-
-#all 2019 data
-actual_leaf_stem_2019 <- data_with_partitioning %>%
-  filter(year == 2019)
-
-mean_var_leaf_stem_2019 <- actual_leaf_stem_2019 %>%
-  group_by(doy) %>%
-  summarize(ActualMeanLeaf = mean(leaf_yield), VarianceLeaf = var(leaf_yield), ActualMeanStem = mean(stem_yield), VarianceStem = var(stem_yield))
-
-actual_yield_2019 <- all_yield %>%
-  filter(year == 2019)
-
-mean_var_yield_2019 <- actual_yield_2019 %>%
-  group_by(doy) %>%
-  summarize(ActualYield = mean(yield_Mg_ha), VarianceYield = var(yield_Mg_ha))
-
-actual_leaf_area_2019 <- all_lai %>%
-  filter(year == 2019)
-
-mean_var_leaf_area_2019 <- actual_leaf_area_2019 %>%
-  group_by(doy) %>%
-  summarize(ActualMeanLeafAreaIndex = mean(LAI), VarianceLAI = var(LAI))
-
-View(actual_leaf_stem_2018)
-
-#These functions are a little clunky, but R doesn't do a good job of keeping a list of dataframes, or a dictionary of dataframes
-#Those would be what we need to avoid these functions
-#Alternatively, we could do what Surya's code does, which is eval(parse()), but that seems to have unpredictable results sometimes
-
-yrLeafStem <- function(year){
-  if(year==2016)
-  {
-    return(actual_leaf_stem_2016)
-  }
-  else if(year==2017)
-  {
-    return(actual_leaf_stem_2017)
-  }
-  else if(year==2018)
-  {
-    return(actual_leaf_stem_2018)
-  }
-  else
-  {
-    return(actual_leaf_stem_2019)
-  }
+yrLeafStem <- function(Year){
+  return(data_with_partitioning %>% filter(year == Year))
 }
 
-yrMeanVarLeafStem <- function(year){
-  if(year==2016)
-  {
-    return(mean_var_leaf_stem_2016)
-  }
-  else if(year==2017)
-  {
-    return(mean_var_leaf_stem_2017)
-  }
-  else if(year==2018)
-  {
-    return(mean_var_leaf_stem_2018)
-  }
-  else
-  {
-    return(mean_var_leaf_stem_2019)
-  }
+yrMeanVarLeafStem <- function(Year){
+  return(yrLeafStem(Year) %>%
+    group_by(doy) %>%
+    summarize(ActualMeanLeaf = mean(leaf_yield), VarianceLeaf = var(leaf_yield), ActualMeanStem = mean(stem_yield), VarianceStem = var(stem_yield)))
 }
 
-yrLeafArea <- function(year){
-  if(year==2016)
-  {
-    return(actual_leaf_area_2016)
-  }
-  else if(year==2017)
-  {
-    return(actual_leaf_area_2017)
-  }
-  else if(year==2018)
-  {
-    return(actual_leaf_area_2018)
-  }
-  else
-  {
-    return(actual_leaf_area_2019)
-  }
+yrLeafArea <- function(Year){
+  return(all_lai %>% filter(year == Year))
 }
 
-yrMeanVarLeafArea <- function(year){
-  if(year==2016)
-  {
-    return(mean_var_leaf_area_2016)
-  }
-  else if(year==2017)
-  {
-    return(mean_var_leaf_area_2017)
-  }
-  else if(year==2018)
-  {
-    return(mean_var_leaf_area_2018)
-  }
-  else
-  {
-    return(mean_var_leaf_area_2019)
-  }
+yrMeanVarLeafArea <- function(Year){
+  return(yrLeafArea(Year) %>%
+           group_by(doy) %>%
+           summarize(ActualMeanLeafAreaIndex = mean(LAI), VarianceLAI = var(LAI)))
 }
 
-yrYield <- function(year){
-  if(year==2016)
-  {
-    return(actual_yield_2016)
-  }
-  else if(year==2017)
-  {
-    return(actual_yield_2017)
-  }
-  else if(year==2018)
-  {
-    return(actual_yield_2018)
-  }
-  else
-  {
-    return(actual_yield_2019)
-  }
+yrYield <- function(Year){
+  return(all_yield %>% filter(year == Year))
 }
 
-yrMeanVarYield <- function(year){
-  if(year==2016)
-  {
-    return(mean_var_yield_2016)
-  }
-  else if(year==2017)
-  {
-    return(mean_var_yield_2017)
-  }
-  else if(year==2018)
-  {
-    return(mean_var_yield_2018)
-  }
-  else
-  {
-    return(mean_var_yield_2019)
-  }
+yrMeanVarYield <- function(Year){
+  return(yrYield(Year) %>%
+           group_by(doy) %>%
+           summarize(ActualYield = mean(yield_Mg_ha), VarianceYield = var(yield_Mg_ha)))
 }
 
-as.numeric(actual_yield_2017 %>% summarize(mean = mean(yield_Mg_ha)))
+yrFinalYield <- function(Year){
+  return(final_yield_only %>% filter(year == Year))
+}
+
+yrMeanVarFinalYield <- function(Year){
+  return(yrFinalYield(Year) %>%
+           group_by(doy) %>%
+           summarize(ActualYield = mean(yield_Mg_ha), VarianceYield = var(yield_Mg_ha)))
+}
 
 #precalculate some stuff about the actual and model data to make Statistics functions easier
 df_inner_join <- function(actualLeafStem,actualMeanVar,modelResult){
@@ -642,6 +475,8 @@ df_inner_join <- function(actualLeafStem,actualMeanVar,modelResult){
   innerJoinDf <- mutate(innerJoinDf,absPercentErrorStem = actualMinusModelStemAbs/stem_yield * 100) #makes a column for absolute value of percentage difference
   innerJoinDf <- mutate(innerJoinDf,chiSquareToSumLeaf = diffSquaresLeaf/VarianceLeaf) #makes a column for square of difference over actual value (for chi square calculation)
   innerJoinDf <- mutate(innerJoinDf,chiSquareToSumStem = diffSquaresStem/VarianceStem) #makes a column for square of difference over actual value (for chi square calculation)
+  
+  #the following are means for the entire data set, to be used for calculating R-squared
   actual_mean_leaf <- as.numeric(actualLeafStem %>% summarize(mean = mean(leaf_yield)))
   innerJoinDf <- mutate(innerJoinDf,totSquareToSumLeaf = (leaf_yield - actual_mean_leaf)^2)
   actual_mean_stem <- as.numeric(actualLeafStem %>% summarize(mean = mean(stem_yield)))
@@ -677,414 +512,51 @@ df_inner_join_leaf_area <- function(actualData,LAIMeanVar,modelResult){
   innerJoinDf <- mutate(innerJoinDf,diffSquares = actualMinusModel * actualMinusModel) #makes a column for the square of the difference
   innerJoinDf <- mutate(innerJoinDf,absPercentError = actualMinusModelAbs/LAI * 100) #makes a column for absolute value of percentage difference
   innerJoinDf <- mutate(innerJoinDf,chiSquareToSum = diffSquares/VarianceLAI) #makes a column for square of difference over actual value (for chi square calculation)
+  
+  #the following are means for the entire data set, to be used for calculating R-squared
   actual_mean_lai <- as.numeric(actualData %>% summarize(mean = mean(LAI)))
   innerJoinDf <- mutate(innerJoinDf,totSquareToSum = (LAI - actual_mean_lai)^2)
   return(innerJoinDf)
 }
 
-#We're not using this right now. It looks at horizontal differences in TTc. No good statistical motivation.
-HorizontalStatistics <- function(x,sorghum_partial,year,dataset_str){
-  result <- sorghum_partial(year)(x)
-  return(Statistics3(result,yrLeafStem(dataset_str),yrLeafArea(dataset_str)))
-}
-
-#calculate RMSE, MAE, MAPE, and Chi Square for actual data vs the BioCro model
-#currently training on 2016 EF data
-#won't be accurate for RMSE and MAE, due to different scales of Leaf Area and Yield, but should be fine for MAPE and ChiSquare
-StatisticsLeafAndYield <- function(x,sorghum_partial,year){
-  result = sorghum_partial(year)(x) #this runs the model on the current parameters
-  return(Statistics1(result,year))
-}
-
-#normalize kLeaf1, kStem1, kRoot1, kGrain1, etc.
-#necessary for the partitioning selector model
-normalize_kVals <- function(current_params){
-  kVals <- data.frame(Leaf = as.numeric(c(current_params$kLeaf1,current_params$kLeaf2,current_params$kLeaf3,current_params$kLeaf4,current_params$kLeaf5,current_params$kLeaf6)),
-                      Stem = as.numeric(c(current_params$kStem1,current_params$kStem2,current_params$kStem3,current_params$kStem4,current_params$kStem5,current_params$kStem6)),
-                      Root = as.numeric(c(current_params$kRoot1,current_params$kRoot2,current_params$kRoot3,current_params$kRoot4,current_params$kRoot5,current_params$kRoot6)),
-                      Grain = as.numeric(c(current_params$kGrain1,current_params$kGrain2,current_params$kGrain3,current_params$kGrain4,current_params$kGrain5,current_params$kGrain6)))
-
-                        
-  kVals <- mutate(kVals, Sum = Leaf + Stem + Root + Grain)
-  kVals <- mutate(kVals, Leaf = Leaf/Sum)
-  kVals <- mutate(kVals, Stem = Stem/Sum)
-  kVals <- mutate(kVals, Root = Root/Sum)
-  kVals <- mutate(kVals, Grain = Grain/Sum)
+#calculate RMSE, MAE, MAPE, normed Mahalanobis for just end of year yield
+Statistics0 <- function(model_result,year){
+  actual_yield <- yrFinalYield(year)
+  mean_var_yield <- yrMeanVarFinalYield(year)
+  innerJoinDf <- df_inner_join_yield(actual_yield,mean_var_yield,model_result)
   
-  current_params$kLeaf1 <- kVals[1,1]
-  current_params$kLeaf2 <- kVals[2,1]
-  current_params$kLeaf3 <- kVals[3,1]
-  current_params$kLeaf4 <- kVals[4,1]
-  current_params$kLeaf5 <- kVals[5,1]
-  current_params$kLeaf6 <- kVals[6,1]
-  current_params$kStem1 <- kVals[1,2]
-  current_params$kStem2 <- kVals[2,2]
-  current_params$kStem3 <- kVals[3,2]
-  current_params$kStem4 <- kVals[4,2]
-  current_params$kStem5 <- kVals[5,2]
-  current_params$kStem6 <- kVals[6,2]
-  current_params$kRoot1 <- kVals[1,3]
-  current_params$kRoot2 <- kVals[2,3]
-  current_params$kRoot3 <- kVals[3,3]
-  current_params$kRoot4 <- kVals[4,3]
-  current_params$kRoot5 <- kVals[5,3]
-  current_params$kRoot6 <- kVals[6,3]
-  current_params$kGrain1 <- kVals[1,4]
-  current_params$kGrain2 <- kVals[2,4]
-  current_params$kGrain3 <- kVals[3,4]
-  current_params$kGrain4 <- kVals[4,4]
-  current_params$kGrain5 <- kVals[5,4]
-  current_params$kGrain6 <- kVals[6,4]
+  #find sums of a few columns for stats calculations
+  SumOfDiffsSquared = sum(innerJoinDf[,'diffSquares'])
+  SumOfAbsDiffs = sum(innerJoinDf[,'actualMinusModelAbs'])
+  SumOfAbsPercs = sum(innerJoinDf[,'absPercentError'])
   
-  return(current_params)
-}
-
-#this is partial_run_biocro with one line of code added that normalizes the k values before running the model
-#haven't changed this to Justin's suggestion yet
-partial_run_biocro_with_normalize <- function(
-  initial_values = list(),
-  parameters = list(),
-  drivers,
-  steady_state_module_names = list(),
-  derivative_module_names = list(),
-  integrator = default_integrator,
-  arg_names,
-  verbose = FALSE
-)
-{
-  # Accepts the same parameters as run_biocro() with an additional
-  # 'arg_names' parameter, which is a vector of character variables.
-  #
-  # Returns a function that runs run_biocro() with all of the
-  # parameters (except those in 'arg_names') set as their default values. The
-  # only parameter in the new function is a numerical vector specifying the
-  # values of the quantities in 'arg_names'. This technique is called "partial
-  # application," hence the name partial_run_biocro.
-  #
-  # initial_values: same as run_biocro()
-  # parameters: same as run_biocro()
-  # drivers: same as run_biocro()
-  # steady_state_module_names: same as run_biocro()
-  # derivative_module_names: same as run_biocro()
-  # integrator: same as run_biocro()
-  # arg_names: vector of character variables. The names of the arguments that
-  #            the new function accepts. Note: 'arg_names' can only contain
-  #            the names of parameters in 'initial_values', 'parameters', or
-  #            'drivers'.
-  # verbose: same as run_biocro()
-  #
-  # returns f(arg).
-  #
-  # Example: varying the TTc values at which senescence starts for a sorghum
-  # simulation; here we set them all to 2000 degrees C * day instead of the
-  # default sorghum values.
-  #
-  #     senescence_simulation <- partial_run_biocro(
-  #         sorghum_initial_values,
-  #         sorghum_parameters,
-  #         get_growing_season_climate(weather05),
-  #         sorghum_steady_state_modules,
-  #         sorghum_derivative_modules,
-  #         sorghum_integrator,
-  #         c('seneLeaf', 'seneStem', 'seneRoot', 'seneRhizome'),
-  #         TRUE
-  #     )
-  #
-  #     result = senescence_simulation(c(2000, 2000, 2000, 2000))
+  #number of rows
+  n = nrow(innerJoinDf)
   
-  arg_list = list(
-    initial_values=initial_values,
-    parameters=parameters,
-    drivers=drivers,
-    steady_state_module_names=steady_state_module_names,
-    derivative_module_names=derivative_module_names,
-    integrator=integrator,
-    verbose=verbose
-  )
+  #stats calculations
+  RMSE = sqrt(SumOfDiffsSquared/n)
+  MAE = SumOfAbsDiffs/n
+  MAPE = SumOfAbsPercs/n
+  ChiSquare = sum(innerJoinDf[,'chiSquareToSum'])
+  ChiSquareNormed = ChiSquare/n
+  TotSquare = sum(innerJoinDf[,'totSquareToSum'])
+  RSquared = 1- (SumOfDiffsSquared/TotSquare)
   
-  df = data.frame(
-    control=character(),
-    arg_name=character(),
-    stringsAsFactors=FALSE
-  )
-  
-  for (i in seq_along(arg_list)) {
-    if (length(names(arg_list[[i]])) > 0) {
-      df = rbind(
-        df,
-        data.frame(
-          control = names(arg_list)[i],
-          arg_name=names(arg_list[[i]]),
-          stringsAsFactors=FALSE
-        )
-      )
-    }
-  }
-  
-  # Find the locations of the parameters specified in arg_names and check for
-  # errors
-  controls = df[match(arg_names, df$arg_name), ]
-  if (any(is.na(controls))) {
-    missing = arg_names[which(is.na(controls$control))]
-    stop(paste('The following arguments in "arg_names" are not in any of the paramter lists:', paste(missing, collapse=', ')))
-  }
-  
-  # Make a function that calls run_biocro with new values for the
-  # parameters specified in arg_names
-  function(x)
-  {
-    if (length(x) != length(arg_names)) {
-      stop("The length of x does not match the length of arguments when this function was defined.")
-    }
-    x = unlist(x)
-    temp_arg_list = arg_list
-    for (i in seq_along(arg_names)) {
-      c_row = controls[i, ]
-      temp_arg_list[[c_row$control]][[c_row$arg_name]] = x[i]
-    }
-    
-    temp_arg_list[['parameters']] <- normalize_kVals(temp_arg_list[['parameters']])
-    do.call(run_biocro, temp_arg_list)
-  }
-}
-
-#used this function to see if we could theoretically reach the large value around day 270 - turns out we could
-new_parameters_max_yield <- function(params_to_change,lower_bounds,upper_bounds,current_params){
-  sorghum_partial <- function(year){
-    return(partial_run_biocro(init_vals_logistic,current_params,
-                                        yrClimate(year),
-                                        sorghum_steady_state_modules_logistic,sorghum_derivative_modules_logistic,sorghum_integrator,params_to_change))
-  }
-  sorghum_270 <- function(x){
-    result = sorghum_partial(2016)(x)
-    avg270 <- result %>% filter(doy==270) %>% summarize(meanYield = mean(Leaf) + mean(Stem))
-    return(-avg270[1,1]) #minimizing negative the value at day 270 will maximize the value at day 270
-  }
-  para <- as.numeric(unname(current_params[params_to_change]))
-  ans <- hjkb(para,sorghum_270,lower=lower_bounds,upper=upper_bounds)
-  new_params <- ans$par
-  names(new_params) <- params_to_change
-  altered_params <- current_params
-  for(p in params_to_change){
-    altered_params[[p]] <- new_params[[p]]
-  }
-  return(altered_params)
-}
-
-#optimizes lai and yield fit simultaneously
-new_parameters <- function(params_to_change,lower_bounds,upper_bounds,current_params,stat_to_minimize,year){
-  sorghum_partial <- function(year){
-    
-    return(partial_run_biocro_with_normalize(sorghum_initial_values,current_params,
-                              yrClimate(year),
-                              sorghum_steady_state_modules,sorghum_derivative_modules,sorghum_integrator,params_to_change))
-  }
-  #st is stat: RMSE, MAE, MAPE, or ChiSquare
-  sorghum_stat <- function(x,st=stat_to_minimize){
-    return(StatisticsLeafAndYield(x,sorghum_partial,year)[,c(st)])
-  }
-  para <- as.numeric(unname(current_params[params_to_change]))
-  ans <- hjkb(para,sorghum_stat,lower=lower_bounds,upper = upper_bounds)
-  new_params <- ans$par
-  names(new_params) <- params_to_change
-  altered_params <- current_params
-  for(p in params_to_change){
-    altered_params[[p]] <- new_params[[p]]
-  }
-  return(altered_params)
-}
-
-#optimizes lai and yield fit simultaneously
-new_parameters_logistic <- function(params_to_change,lower_bounds,upper_bounds,current_params,year,st){
-  sorghum_partial <- function(year){
-    
-    return(partial_run_biocro(init_vals_logistic,current_params,
-                                             yrClimate(year),
-                                             sorghum_steady_state_modules_logistic,sorghum_derivative_modules_logistic,sorghum_integrator,params_to_change))
-  }
-  #st is stat: RMSE, MAE, MAPE, or ChiSquare
-  sorghum_stat <- function(x,stat=st){
-    return(as.numeric(StatisticsLeafAndYield(x,sorghum_partial,year)[,c(stat)]))
-  }
-  para <- as.numeric(unname(current_params[params_to_change]))
-  ans <- hjkb(para,sorghum_stat,lower=lower_bounds,upper = upper_bounds)
-  new_params <- ans$par
-  names(new_params) <- params_to_change
-  altered_params <- current_params
-  for(p in params_to_change){
-    altered_params[[p]] <- new_params[[p]]
-  }
-  return(altered_params)
-}
-
-#easily adjust starting values without affecting "sorghum_parameters"
-sorg_parameters <- sorghum_parameters
-sorg_parameters$iSp <- 2.3
-sorg_parameters$kLeaf1 <- 0.3
-sorg_parameters$kStem1 <- 0.44
-sorg_parameters$kRoot1 <- 0.26
-sorg_parameters$kLeaf2 <- 0.849
-sorg_parameters$kStem2 <- 0.001
-sorg_parameters$kRoot2 <- 0.15
-sorg_parameters$kLeaf3 <- 0.23
-sorg_parameters$kStem3 <- 0.76
-sorg_parameters$kRoot3 <- 0.01
-sorg_parameters$kLeaf4 <- 0.49
-sorg_parameters$kStem4 <- 0.5
-sorg_parameters$kRoot4 <- 0.01
-sorg_parameters$kLeaf5 <- 0.96
-sorg_parameters$kStem5 <- 0.01
-sorg_parameters$kRoot5 <- 0.03
-sorg_parameters$kLeaf6 <- 0.49
-sorg_parameters$kStem6 <- 0.5
-sorg_parameters$kRoot6 <- 0.01
-sorg_parameters$tp1 <- 562
-sorg_parameters$tp2 <- 1312
-sorg_parameters$tp3 <- 2063
-sorg_parameters$tp4 <- 2676
-sorg_parameters$tp5 <- 3211
-sorg_parameters$Sp_thermal_time_decay <- 0
-
-#the lines below will run hjkb once
-
-#use these lines when using selector model
-new_params_final <- new_parameters(c("iSp","Sp_thermal_time_decay","tp1",'tp2','tp3',"tp4",'tp5',
-                                     "kLeaf1",'kLeaf2','kLeaf3',"kLeaf4",'kLeaf5','kLeaf6',
-                                     "kStem1",'kStem2','kStem3',"kStem4",'kStem5','kStem6',
-                                     "kRoot1",'kRoot2','kRoot3',"kRoot4",'kRoot5','kRoot6'
-                                     ),
-                                   c(0.3,-9e-4,20,300,300,300,300,
-                                     1e-8,1e-8,1e-8,1e-8,1e-8,1e-8,
-                                     1e-8,1e-8,1e-8,1e-8,1e-8,1e-8,
-                                     1e-8,1e-8,1e-8,1e-8,1e-8,1e-8
-                                     ),
-                                   c(200,9e-4,10000,10000,10000,10000,10000,
-                                     1,1,1,1,1,1,
-                                     1,1,1,1,1,1,
-                                     1,1,1,1,1,1
-                                     ),
-                                   sorghum_parameters,
-                                   "MAE",2016,"EF2016")
-
-new_params_final <- normalize_kVals(new_params_final)
-
-View(new_params_final)
-
-#use these lines when using logistic model; need to change the modules above also (should eventually take module lists as inputs in new_parameters)
-new_params_final <- new_parameters_logistic(c("iSp","Sp_thermal_time_decay","alphaRoot","alphaStem","alphaLeaf",
-                                     "betaRoot","betaStem","betaLeaf",
-                                     "TTemr","TTveg","TTrep"),
-                                   c(0.3,-1e-2,0,0,0,
-                                     -50,-50,-50,
-                                     20,300,300),
-                                   c(200,1e-2,50,50,50,
-                                     0,0,0,
-                                     10000,10000,10000),
-                                   sorghum_parameters_logistic,
-                                   "MAE",2016,"EF2016")
-View(new_params_final)
-
-
-conversion <- c('meanLeaf','meanStem','meanYield','meanLai')
-names(conversion) <- c('leaf_yield','stem_yield','yield_Mg_ha','LAI')
-
-
-#multivariable loss function
-Statistics4 <- function(model_result,year){
-  temp <- full_join(yrLeafArea(year),yrYield(year),by=c('doy','site_id','year','range','first_row'))
-  temp <- full_join(temp,yrLeafStem(year),by=c('doy','site_id','year','range','first_row'))
-  actual_data <- subset(temp,select=c(doy,year,leaf_yield,stem_yield,yield_Mg_ha,LAI))
-  byDay <- model_result %>% 
+  #normed Mahalanobis calculations
+  Count = innerJoinDf %>% count(doy)
+  Count <- mutate(Count,recip_sqrt = 1/sqrt(n))
+  factor_to_norm <- 1/sum(Count[,'recip_sqrt'])
+  Mahal <- innerJoinDf %>%
     group_by(doy) %>%
-    summarize(meanLeaf = mean(Leaf),meanStem = mean(Stem),meanYield = mean(Leaf) + mean(Stem),meanLai = mean(lai))
-  num_rows <- nrow(actual_data)
-  loss <- 0
-  for(i in 1:5){
-    Doy <- as.numeric(unname(actual_data[i,'doy']))
-    dayModel <- byDay %>% filter(doy==Doy)
-    covMat <- CovarianceMatrix(Doy,year)
-    list_names <- colnames(covMat)
-    actual_vec <- subset(actual_data[i,],select=list_names)
-    list_model_names <- c()
-    for(name in list_names){
-      list_model_names <- c(list_model_names,conversion[[name]])
-    }
-    model_vec <- subset(dayModel,select=list_model_names)
-    
-    diff <- actual_vec - model_vec
-    
-    hor_diff <- matrix(unlist(diff),nrow=1)
-    ver_diff <- matrix(unlist(diff),ncol=1)
-    loss <- loss + as.numeric(hor_diff %*% solve(CovarianceMatrix(Doy,year)) %*% ver_diff)
-  }
-  return(loss)
+    summarize(MahalYieldSum = sqrt(sum(chiSquareToSum))/n)
+  MahalFinal <- mutate(full_join(Count,Mahal,by=c('doy')),MahalYieldNormed = MahalYieldSum/n)
+  Mahalanobis = sum(MahalFinal[,'MahalYieldNormed']) * factor_to_norm
+  stats = data.frame(RSquared = c(RSquared), RMSE = c(RMSE), MAE = c(MAE), MAPE = c(MAPE), MahalToSum = c(ChiSquare), MahalToSum_normed = c(ChiSquareNormed), Mahalanobis_normed = c(Mahalanobis))
+  
+  return(stats)
 }
 
-
-#calculate the covariance matrix on a given day
-CovarianceMatrix <-function(Doy,year){
-  #order: (leaf and stem) OR yield, then lai
-  entries <- c()
-  rows <- 0
-  row_names <- c()
-  
-  dayLeafStem <- yrLeafStem(year) %>% filter(doy==Doy)
-  dayLAI <- yrLeafArea(year) %>% filter(doy==Doy)
-  if(nrow(dayLeafStem)>0){
-    rows <- rows + 2
-    row_names <- c(row_names,'leaf_yield','stem_yield')
-    entries <- c(entries,var(dayLeafStem[,'leaf_yield']))
-    covLS <- as.numeric(cov(dayLeafStem[,'leaf_yield'],dayLeafStem[,'stem_yield']))
-    entries <- c(entries,covLS)
-    
-    
-    dayLeafStemLAI <- inner_join(dayLeafStem,dayLAI,by=c('doy','year','range','first_row','site_id'))
-    if(nrow(dayLeafStemLAI)>0){
-      rows <- rows + 1
-      row_names <- c(row_names,'LAI')
-      covLLAI <-as.numeric(cov(dayLeafStemLAI[,'leaf_yield'],dayLeafStemLAI[,'LAI']))
-      entries <- c(entries,covLLAI)
-    }
-    
-    entries <- c(entries,covLS)
-    entries <- c(entries,var(dayLeafStem[,'stem_yield']))
-    if(nrow(dayLeafStemLAI)>0){
-      covSLAI <- as.numeric(cov(dayLeafStemLAI[,'stem_yield'],dayLeafStemLAI[,'LAI']))
-      entries <- c(entries,covSLAI)
-      entries <- c(entries,covLLAI)
-      entries <- c(entries,covSLAI)
-      entries <- c(entries,var(dayLAI[,'LAI']))
-    }
-  }
-  else{
-    dayYield <- yrYield(year) %>% filter(doy==Doy)
-    if(nrow(dayYield)>0){
-      rows <- rows + 1
-      row_names <- c(row_names,'yield_Mg_ha')
-      entries <- c(entries,var(dayYield[,'yield_Mg_ha']))
-      if(nrow(dayLAI>0)){
-        rows <- rows + 1
-        row_names <- c(row_names,'LAI')
-        dayYieldLAI <- inner_join(dayYield,dayLAI,by=c('doy','year','range','first_row','site_id'))
-        covYLAI <- as.numeric(cov(dayYieldLAI[,'yield_Mg_ha.x'],cov(dayYieldLAI[,'LAI'])))
-        entries <- c(entries,covYLAI)
-        entries <- c(entries,covYLAI)
-        entries <- c(entries,var(dayLAI[,'LAI']))
-      }
-    }
-    else{
-      rows <- rows + 1
-      row_names <- c(row_names,'LAI')
-      entries <- c(entries,var(dayLAI[,'LAI']))
-    }
-  }
-  
-  
-  return(matrix(entries,rows,rows,byrow = TRUE,dimnames=list(row_names,row_names)))
-  
-}
-
-#calculate RMSE, MAE, MAPE, and Chi Square for LAI, Leaf, and Stem
+#calculate RMSE, MAE, MAPE, normed Mahalanobis for LAI, Leaf, Stem, and yield
 Statistics1 <- function(model_result,year){
   actual_leaf_stem <- yrLeafStem(year)
   mean_var_leaf_stem <- yrMeanVarLeafStem(year)
@@ -1113,6 +585,7 @@ Statistics1 <- function(model_result,year){
   TotSquare = sum(innerJoinDf1[,'totSquareToSumLeaf']) + sum(innerJoinDf1[,'totSquareToSumStem']) + sum(innerJoinDf2[,'totSquareToSum']) + sum(innerJoinDf3[,'totSquareToSum'])
   RSquared = 1- (SumOfDiffsSquared/TotSquare)
   
+  #Mahalanobis calculations
   Count1 = innerJoinDf1 %>% count(doy)
   Count1 <- mutate(Count1,recip_sqrt = 1/sqrt(n))
   Mahal1 <- innerJoinDf1 %>%
@@ -1138,387 +611,47 @@ Statistics1 <- function(model_result,year){
   return(stats)
 }
 
-model <- run_biocro(sorghum_initial_values,sorghum_parameters,yrClimate(2016),
-                    sorghum_steady_state_modules,sorghum_derivative_modules)
+#wrapper functions to calculate statistics for actual data vs the BioCro model
 
-View(df_inner_join(actual_leaf_stem_2016,model))
-
-#Looks at difference in TTc values
-#Does a decent job at modeling, but there's no statistical motivation for it
-Statistics2 <- function(model_result,actual_yield,actual_leaf_data){
-  byDay <- model_result %>% 
-    group_by(doy) %>%
-    summarize(meanYield = mean(Leaf) + mean(Stem),leafAreaIndex=mean(lai),meanTTc = mean(TTc))
-  first_doy <- as.numeric(unname(byDay[1,1]))
-  last_doy <- as.numeric(unname(byDay[nrow(byDay),1]))
-  absdiffs <- vector()
-  sqdiffs <- vector()
-  percdiffs <- vector()
-  chisq <- vector()
-  for(i in 1:nrow(actual_leaf_data)){
-    actual_lai <- as.numeric(unname(actual_leaf_data[i,2]))
-    actual_doy <- as.numeric(unname(actual_leaf_data[i,1]))
-    before <- FALSE
-    after <- FALSE
-    row <- 1
-    for(j in first_doy:actual_doy){
-      if(as.numeric(unname(byDay[row,'leafAreaIndex']))>actual_lai){
-        before_doy <- j
-        before <- TRUE
-        break
-      }
-      row <- row + 1
-    }
-    
-    start <- actual_doy + 1
-    row <- actual_doy - first_doy + 2
-    if(!before){
-      for(j in start:last_doy){
-        if(as.numeric(unname(byDay[row,'leafAreaIndex']))>actual_lai){
-          after_doy <- j
-          after <- TRUE
-          break
-        }
-        row <- row + 1
-      }
-    }
-    else{
-      for(j in start:last_doy){
-        if(as.numeric(unname(byDay[row,'leafAreaIndex']))<actual_lai){
-          after_doy <- j
-          after <- TRUE
-          break
-        }
-        row <- row + 1
-      }
-    }
-    
-    actual_row <- actual_doy - first_doy + 1
-    actual_TTc <- as.numeric(unname(byDay[actual_row,'meanTTc']))
-    if(!before & !after){
-      stat <- actual_TTc
-    }
-    else if(before & !after){
-      before_row <- before_doy - first_doy + 1
-      stat <- abs(actual_TTc - as.numeric(unname(byDay[before_row,'meanTTc'])))
-    }
-    else if(after & !before){
-      after_row <- after_doy - first_doy + 1
-      stat <- abs(as.numeric(unname(byDay[after_row,'meanTTc'])) - actual_TTc)
-    }
-    else{
-      before_row <- before_doy - first_doy + 1
-      statbef <- abs(actual_TTc - as.numeric(unname(byDay[before_row,'meanTTc'])))
-      stataft <- abs(as.numeric(unname(byDay[after_row,'meanTTc'])) - actual_TTc)
-      stat <- min(c(statbef,stataft))
-    }
-    absdiffs <- c(absdiffs,stat)
-    sq <- stat * stat
-    sqdiffs <- c(sqdiffs,sq)
-    percdiffs <- c(percdiffs,stat/actual_TTc * 100)
-    chisq <- c(chisq,stat * stat/actual_TTc)
-  }
-  for(i in 1:nrow(actual_yield)){
-    yield <- as.numeric(unname(actual_yield[i,2]))
-    actual_doy <- as.numeric(unname(actual_yield[i,1]))
-    before <- FALSE
-    after <- FALSE
-    row <- 1
-    for(j in first_doy:actual_doy){
-      if(as.numeric(unname(byDay[row,'meanYield']))>yield){
-        before_doy <- j
-        before <- TRUE
-        break
-      }
-      row <- row + 1
-    }
-    
-    start <- actual_doy + 1
-    row <- actual_doy - first_doy + 2
-    if(!before){
-      for(j in start:last_doy){
-        if(as.numeric(unname(byDay[row,'meanYield']))>yield){
-          after_doy <- j
-          after <- TRUE
-          break
-        }
-        row <- row + 1
-      }
-    }
-    else{
-      for(j in start:last_doy){
-        if(as.numeric(unname(byDay[row,'meanYield']))<yield){
-          after_doy <- j
-          after <- TRUE
-          break
-        }
-        row <- row + 1
-      }
-    }
-    actual_row <- actual_doy - first_doy + 1
-    actual_TTc <- as.numeric(unname(byDay[actual_row,'meanTTc']))
-    if(!before & !after){
-      stat <- actual_TTc
-    }
-    else if(before & !after){
-      before_row <- before_doy - first_doy + 1
-      stat <- abs(actual_TTc - as.numeric(unname(byDay[before_row,'meanTTc'])))
-    }
-    else if(after & !before){
-      after_row <- after_doy - first_doy + 1
-      stat <- abs(as.numeric(unname(byDay[after_row,'meanTTc'])) - actual_TTc)
-    }
-    else{
-      before_row <- before_doy - first_doy + 1
-      statbef <- abs(actual_TTc - as.numeric(unname(byDay[before_row,'meanTTc'])))
-      stataft <- abs(as.numeric(unname(byDay[after_row,'meanTTc'])) - actual_TTc)
-      stat <- min(c(statbef,stataft))
-    }
-    absdiffs <- c(absdiffs,stat)
-    sq <- stat * stat
-    sqdiffs <- c(sqdiffs,sq)
-    percdiffs <- c(percdiffs,stat/actual_TTc * 100)
-    chisq <- c(chisq,stat * stat/actual_TTc)
-  }
-  print(absdiffs)
-  SumOfDiffsSquared = as.numeric(sum(sqdiffs))
-  SumOfAbsDiffs = as.numeric(sum(absdiffs))
-  SumOfAbsPercs = as.numeric(sum(percdiffs))
-
-  n = length(absdiffs)
-  
-  RMSE = sqrt(SumOfDiffsSquared/n)
-  MAE = SumOfAbsDiffs/n
-  MAPE = SumOfAbsPercs/n
-  ChiSquare = as.numeric(sum(chisq))
-  
-  print(paste(RMSE,MAE,MAPE,ChiSquare))
-  
-  #return as a dataframe
-  stats = data.frame(RMSE = c(RMSE), MAE = c(MAE), MAPE = c(MAPE), ChiSquare = c(ChiSquare))
-  
-  return(stats)
+#for all data
+#different scales of LAI and Yield may affect RMSE and MAE in weird ways
+StatisticsLeafAndYield <- function(x,sorghum_partial,year){
+  result = sorghum_partial(year)(x) #this runs the model on the current parameters
+  return(Statistics1(result,year))
 }
 
-View(actual_leaf_stem_2016)
+#this is for final yield only
+StatisticsFinalYield <- function(x,sorghum_partial,year){
+  result = sorghum_partial(year)(x) #this runs the model on the current parameters
+  return(Statistics0(result,year))
+}
 
-#Looks at difference in TTc values
-#Does a decent job at modeling, but there's no statistical motivation for it
-Statistics3 <- function(model_result,actual_leaf_stem,actual_leaf_data){
-  byDay <- model_result %>% 
-    group_by(doy) %>%
-    summarize(meanLeaf = mean(Leaf), meanStem = mean(Stem),leafAreaIndex=mean(lai),meanTTc = mean(TTc))
-  first_doy <- as.numeric(unname(byDay[1,1]))
-  last_doy <- as.numeric(unname(byDay[nrow(byDay),1]))
-  absdiffs <- vector()
-  sqdiffs <- vector()
-  percdiffs <- vector()
-  chisq <- vector()
-  for(i in 1:nrow(actual_leaf_data)){
-    actual_lai <- as.numeric(unname(actual_leaf_data[i,2]))
-    actual_doy <- as.numeric(unname(actual_leaf_data[i,1]))
-    before <- FALSE
-    after <- FALSE
-    row <- 1
-    for(j in first_doy:actual_doy){
-      if(as.numeric(unname(byDay[row,'leafAreaIndex']))>actual_lai){
-        before_doy <- j
-        before <- TRUE
-        break
-      }
-      row <- row + 1
-    }
+#optimizes fitting all data (lai, Leaf, Stem, final yield) or end of year yield only
+new_parameters_logistic <- function(params_to_change,lower_bounds,upper_bounds,current_params,year,st,final_only=FALSE){
+  sorghum_partial <- function(year){
     
-    start <- actual_doy + 1
-    row <- actual_doy - first_doy + 2
-    if(!before){
-      for(j in start:last_doy){
-        if(as.numeric(unname(byDay[row,'leafAreaIndex']))>actual_lai){
-          after_doy <- j
-          after <- TRUE
-          break
-        }
-        row <- row + 1
-      }
-    }
-    else{
-      for(j in start:last_doy){
-        if(as.numeric(unname(byDay[row,'leafAreaIndex']))<actual_lai){
-          after_doy <- j
-          after <- TRUE
-          break
-        }
-        row <- row + 1
-      }
-    }
-    
-    actual_row <- actual_doy - first_doy + 1
-    actual_TTc <- as.numeric(unname(byDay[actual_row,'meanTTc']))
-    if(!before & !after){
-      stat <- actual_TTc
-    }
-    else if(before & !after){
-      before_row <- before_doy - first_doy + 1
-      stat <- abs(actual_TTc - as.numeric(unname(byDay[before_row,'meanTTc'])))
-    }
-    else if(after & !before){
-      after_row <- after_doy - first_doy + 1
-      stat <- abs(as.numeric(unname(byDay[after_row,'meanTTc'])) - actual_TTc)
-    }
-    else{
-      before_row <- before_doy - first_doy + 1
-      after_row <- after_doy - first_doy +1
-      statbef <- abs(actual_TTc - as.numeric(unname(byDay[before_row,'meanTTc'])))
-      stataft <- abs(as.numeric(unname(byDay[after_row,'meanTTc'])) - actual_TTc)
-      stat <- min(c(statbef,stataft))
-    }
-    absdiffs <- c(absdiffs,stat)
-    sq <- stat * stat
-    sqdiffs <- c(sqdiffs,sq)
-    percdiffs <- c(percdiffs,stat/actual_TTc * 100)
-    chisq <- c(chisq,stat * stat/actual_TTc)
+    return(partial_run_biocro(init_vals_logistic,current_params,
+                              yrClimate(year),
+                              sorghum_steady_state_modules_logistic,sorghum_derivative_modules_logistic,sorghum_integrator,params_to_change))
   }
-  for(i in 1:nrow(actual_leaf_stem)){
-    leaf <- as.numeric(unname(actual_leaf_stem[i,2]))
-    stem <- as.numeric(unname(actual_leaf_stem[i,3]))
-    actual_doy <- as.numeric(unname(actual_leaf_stem[i,1]))
-    before_leaf <- FALSE
-    after_leaf <- FALSE
-    before_stem <- FALSE
-    after_stem <- FALSE
-    row <- 1
-    for(j in first_doy:actual_doy){
-      if(as.numeric(unname(byDay[row,'meanLeaf']))>leaf){
-        before_leaf_doy <- j
-        before_leaf <- TRUE
-        break
-      }
-      row <- row + 1
-    }
-    row <- 1
-    for(j in first_doy:actual_doy){
-      if(as.numeric(unname(byDay[row,'meanStem']))>stem){
-        before_stem_doy <- j
-        before_stem <- TRUE
-        break
-      }
-      row <- row + 1
-    }
-    
-    start <- actual_doy + 1
-    row <- actual_doy - first_doy + 2
-    if(!before_leaf){
-      for(j in start:last_doy){
-        if(as.numeric(unname(byDay[row,'meanLeaf']))>leaf){
-          after_leaf_doy <- j
-          after_leaf <- TRUE
-          break
-        }
-        row <- row + 1
-      }
+  #st is stat: RMSE, MAE, MAPE, or ChiSquare
+  sorghum_stat <- function(x,stat=st){
+    if(final_only){
+      return(as.numeric(StatisticsFinalYield(x,sorghum_partial,year)[,c(stat)]))
     }
     else{
-      for(j in start:last_doy){
-        if(as.numeric(unname(byDay[row,'meanLeaf']))<leaf){
-          after_leaf_doy <- j
-          after_leaf <- TRUE
-          break
-        }
-        row <- row + 1
-      }
+      return(as.numeric(StatisticsLeafAndYield(x,sorghum_partial,year)[,c(stat)]))
     }
-    
-    start <- actual_doy + 1
-    row <- actual_doy - first_doy + 2
-    if(!before_stem){
-      for(j in start:last_doy){
-        if(as.numeric(unname(byDay[row,'meanStem']))>stem){
-          after_stem_doy <- j
-          after_stem <- TRUE
-          break
-        }
-        row <- row + 1
-      }
-    }
-    else{
-      for(j in start:last_doy){
-        if(as.numeric(unname(byDay[row,'meanStem']))<stem){
-          after_stem_doy <- j
-          after_stem <- TRUE
-          break
-        }
-        row <- row + 1
-      }
-    }
-    
-    actual_row <- actual_doy - first_doy + 1
-    actual_TTc <- as.numeric(unname(byDay[actual_row,'meanTTc']))
-    if(!before_leaf & !after_leaf){
-      stat <- actual_TTc
-    }
-    else if(before_leaf & !after_leaf){
-      before_row <- before_leaf_doy - first_doy + 1
-      stat <- abs(actual_TTc - as.numeric(unname(byDay[before_row,'meanTTc'])))
-    }
-    else if(after_leaf & !before_leaf){
-      after_row <- after_leaf_doy - first_doy + 1
-      stat <- abs(as.numeric(unname(byDay[after_row,'meanTTc'])) - actual_TTc)
-    }
-    else{
-      before_row <- before_leaf_doy - first_doy + 1
-      after_row <- after_leaf_doy - first_doy + 1
-      statbef <- abs(actual_TTc - as.numeric(unname(byDay[before_row,'meanTTc'])))
-      stataft <- abs(as.numeric(unname(byDay[after_row,'meanTTc'])) - actual_TTc)
-      stat <- min(c(statbef,stataft))
-    }
-    absdiffs <- c(absdiffs,stat)
-    sq <- stat * stat
-    sqdiffs <- c(sqdiffs,sq)
-    percdiffs <- c(percdiffs,stat/actual_TTc * 100)
-    chisq <- c(chisq,stat * stat/actual_TTc)
-    
-    if(!before_stem & !after_stem){
-      stat <- actual_TTc
-    }
-    else if(before_stem & !after_stem){
-      before_row <- before_stem_doy - first_doy + 1
-      stat <- abs(actual_TTc - as.numeric(unname(byDay[before_row,'meanTTc'])))
-    }
-    else if(after_stem & !before_stem){
-      after_row <- after_stem_doy - first_doy + 1
-      stat <- abs(as.numeric(unname(byDay[after_row,'meanTTc'])) - actual_TTc)
-    }
-    else{
-      before_row <- before_stem_doy - first_doy + 1
-      after_row <- after_stem_doy - first_doy + 1
-      statbef <- abs(actual_TTc - as.numeric(unname(byDay[before_row,'meanTTc'])))
-      stataft <- abs(as.numeric(unname(byDay[after_row,'meanTTc'])) - actual_TTc)
-      stat <- min(c(statbef,stataft))
-    }
-    absdiffs <- c(absdiffs,stat)
-    sq <- stat * stat
-    sqdiffs <- c(sqdiffs,sq)
-    percdiffs <- c(percdiffs,stat/actual_TTc * 100)
-    chisq <- c(chisq,stat * stat/actual_TTc)
   }
-  print(absdiffs)
-  SumOfDiffsSquared = as.numeric(sum(sqdiffs))
-  SumOfAbsDiffs = as.numeric(sum(absdiffs))
-  SumOfAbsPercs = as.numeric(sum(percdiffs))
-  
-  n = length(absdiffs)
-  
-  RMSE = sqrt(SumOfDiffsSquared/n)
-  MAE = SumOfAbsDiffs/n
-  MAPE = SumOfAbsPercs/n
-  ChiSquare = as.numeric(sum(chisq))
-  
-  print(paste(RMSE,MAE,MAPE,ChiSquare))
-  
-  #return as a dataframe
-  stats = data.frame(RMSE = c(RMSE), MAE = c(MAE), MAPE = c(MAPE), ChiSquare = c(ChiSquare))
-  
-  return(stats)
+  para <- as.numeric(unname(current_params[params_to_change]))
+  ans <- hjkb(para,sorghum_stat,lower=lower_bounds,upper = upper_bounds)
+  new_params <- ans$par
+  names(new_params) <- params_to_change
+  altered_params <- current_params
+  for(p in params_to_change){
+    altered_params[[p]] <- new_params[[p]]
+  }
+  return(altered_params)
 }
 
 #function returns a graph of lai for the model data and the actual data
@@ -1561,8 +694,6 @@ getGraphYield <- function(model_result,actual_yield,sub="") {
            scale_color_manual(name = "Data Source",values = c("red", "blue")) + #model in blue, actual in red
            theme(legend.position = "bottom")) #put legend at bottom
 }
-
-
   
 #4 graphs side by side
 getGraphAll <- function(year,model_result,subleaf="",subyield="") {
@@ -1607,46 +738,14 @@ getGraphAll <- function(year,model_result,subleaf="",subyield="") {
   return(LeafArea + Yield + Leaf + Stem)
 }
 
-#input previously run parameters that we liked
-new_params_final_temp <- iter5_iSp2.9198_Params_fitted_to_2017_minimizing_MahalToSum
-new_params <- new_params_final_temp[2,]
-names(new_params) <- new_params_final_temp[1,]
-
-
-View(sorghum_parameters_logistic)
-temp_parameters <- new_params
-temp_parameters$alphaLeaf <- 57.5
-temp_parameters$alphaRoot <- -9.999992
-temp_parameters$alphaStem <- 8.4
-temp_parameters$betaLeaf <- -59
-temp_parameters$betaRoot <- -99
-temp_parameters$betaStem <- 9.99
-temp_parameters$Sp_thermal_time_decay <- 0.0002
-temp_parameters$iSp <- 2
-temp_parameters$TTemr <- 65
-temp_parameters$TTveg <- 1090
-temp_parameters$TTrep <- 5000
-View(temp_parameters)
 
 setwd("C://Users/stark/OneDrive/Documents2021/biocro-dev/with_partitioning_logistic/Mahalanobis_normed")
-
-old_model <- run_biocro(
-  init_vals_logistic,
-  sorghum_parameters_logistic,
-  yrClimate(2016),
-  sorghum_steady_state_modules_logistic,
-  sorghum_derivative_modules_logistic
-)
-
-View(old_model)
 
 #runs hjkb and prints graphs
 run_and_print_graphs <- function(to_minimize,init_val,old_params,year_of_testset,params_to_change,lower,upper){
   
   new_params_final <- new_parameters_logistic(params_to_change,lower,upper,
                                      old_params,year_of_testset,to_minimize)
-  
-  
   
   for(yr in 2016:2019){
     old_model <- run_biocro(
@@ -1688,8 +787,7 @@ run_and_print_graphs <- function(to_minimize,init_val,old_params,year_of_testset
   return(new_params_final)
 }
 
-View(new_params)
-
+#just print the graphs, if it's not needed to run hjkb first
 print_graphs <- function(to_minimize,init_val,old_params,new_params,year_of_testset){
   for(yr in 2016:2019){
     old_model <- run_biocro(
@@ -1730,59 +828,49 @@ print_graphs <- function(to_minimize,init_val,old_params,new_params,year_of_test
 }
 
 
-
-
+#these lines of code will run and print the graphs
+#the bounds currently need to be changed in 2 places, because R is clunky, but there may be a better way to code this
 params_and_bounds <- data.frame("params" = c("iSp","Sp_thermal_time_decay","alphaRoot","alphaLeaf","alphaStem",
                                             "betaRoot","betaLeaf","betaStem",
                                             "TTemr","TTveg","TTrep"),
                                 "lower" = c(0.3,-5e-4,-10,-10,-10,
-                                            -100,-100,-100,
+                                            -150,-150,-150,
                                             10,300,301),
                                 "upper" = c(200,5e-4,
-                                            100,100,100,
+                                            150,150,150,
                                             10,10,10,
                                             10000,10001,10002))
 
-new_params <- run_and_print_graphs("Mahalanobis_normed","iter3_iSp2",temp_parameters,2017,params_and_bounds[,'params'],c(0.3,-5e-4,-10,-10,-10,
-                                                                                                    -100,-100,-100,
+#I keep track of the iteration number of hjkb (see below for what I do for future iterations), and the starting iSp value (as a double check)
+new_params <- run_and_print_graphs("Mahalanobis_normed","iter1_iSp3",sorghum_parameters_logistic,2017,params_and_bounds[,'params'],c(0.3,-5e-4,-10,-10,-10,
+                                                                                                    -150,-150,-150,
                                                                                                     10,300,301),c(200,5e-4,
-                                                                                                                  100,100,100,
+                                                                                                                  150,150,150,
                                                                                                                   10,10,10,
                                                                                                                   10000,10001,10002))
 
 
-new_params$TTrep <- 5000
+#for sorghum - sometimes TTrep comes out too low and needs to be changed to higher, since energy sorghum doesn't flower
+#new_params$TTrep <- 5000
 
-model_2018 <- run_biocro(init_vals_logistic,new_params,yrClimate(2018),sorghum_steady_state_modules_logistic,sorghum_derivative_modules_logistic)
-Statistics1(model_2018,2018)
+#these lines of code are to import a previously generated file of parameters and get them into the right format for BioCro to run
+#new_params_final_temp <- BEST_ONE_iter1_iSp3_Params_fitted_to_logistic_2018_minimizing_Mahalanobis_normed
+#temp_parameters <- new_params_final_temp[2,]
+#names(temp_parameters) <- new_params_final_temp[1,]
 
-print_graphs("Mahalanobis_normed","iter1_iSp3",sorghum_parameters_logistic,new_params,2017)
-
-View(run_biocro(sorghum_initial_values,sorghum_parameters,yrClimate(2016),sorghum_steady_state_modules,sorghum_derivative_modules))
-
-
-setwd("C://Users/stark/OneDrive/Documents2021/biocro-dev/sorghum_mahalanobis")
-
-#runs with random starting values
-n <- nrow(params_and_bounds)
-set.seed(5)
-for(i in 1:6){
-  for(j in 1:n){
-    if(!params_and_bounds[j,'params'])
-    sorghum_parameters[[params_and_bounds[j,'params']]] <- as.numeric(runif(1,params_and_bounds[j,'lower'],params_and_bounds[j,'upper']))
-  }
-  run_and_print_graphs("MAE",paste0("iSp",sorghum_parameters[['iSp']]),sorghum_parameters,2016,"2016EF")
-}
-
-#this would run every possible set of starting values with a given granularity...that would take too long usually
-#num_steps <- 2
-#for(i in 0:(num_steps+1)^n){
-#  value <- i
-#  for(j in 1:n){
-#    multiplier <- mod(value,num_steps+1)
-#    delta <- (params_and_bounds[j,'upper'] - params_and_bounds[j,'lower']) / num_steps
-#    sorghum_parameters[[params_and_bounds[j,'params']]] <- params_and_bounds[j,'lower'] + multiplier * delta
-#    value <- floor(value/(num_steps+1))
-#  }
-#  run_and_print_graphs("MAE",paste0("iSp",sorghum_parameters[['iSp']]),sorghum_parameters,2016,"2016EF")
-#}
+#hjkb often needs to be run for a few iterations, to help avoid local optima
+#usually, for parameter value x that had value x_fitted after fitting, I will re-run hjkb with the starting value now assigned to x_fitted + (x_fitted - x)
+#of course, there are many other methods to do this
+#if you have a very fast computer and/or can let it run for awhile (probably a couple weeks), you could make a lattice of possible starting values and start at each one
+temp_parameters <- new_params
+temp_parameters$alphaLeaf <- 57.2
+temp_parameters$alphaRoot <- -10
+temp_parameters$alphaStem <- 7
+temp_parameters$betaLeaf <- -64.2
+temp_parameters$betaRoot <- -100
+temp_parameters$betaStem <- 10
+temp_parameters$Sp_thermal_time_decay <- 0.00049
+temp_parameters$iSp <- 2
+temp_parameters$TTemr <- 70.6
+temp_parameters$TTveg <- 1171
+temp_parameters$TTrep <- 5000
