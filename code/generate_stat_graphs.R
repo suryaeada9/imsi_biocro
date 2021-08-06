@@ -4,17 +4,104 @@ library(patchwork)
 
 
 #for sorghum graphs
-setwd("C://Users/stark/OneDrive/Documents2021/biocro-dev/sorghum_stat_graphs")
+setwd("C://Users/stark/OneDrive/Documents2021/biocro-dev/sorghum_stat_graphs_v2")
 
 sorghum_stats <- read.csv("C:/Users/stark/OneDrive/Documents2021/biocro-dev/sorghum_stats.csv")
 
 sorghum_stats['quality_stat'] <- 100 * (1-sorghum_stats[['Mahalanobis_normed']] / 4)
 
+n <- nrow(sorghum_stats)
+
+training_or_test <- function(training_set,test_set){
+  if(training_set == test_set){
+    return('Training')
+  }
+  else{
+    return('Validation')
+  }
+}
+
+final_or_all <- function(training_set){
+  if(grepl('all',training_set)){
+    return("All Data")
+  }
+  else{
+    return("Final Yield Only")
+  }
+}
+
+for(i in 1:n){
+  sorghum_stats[i,'training_test_same'] <- (training_or_test(sorghum_stats[i,'training_set'],sorghum_stats[i,'test_set']))
+  sorghum_stats[i,'final_or_all'] <- (final_or_all(sorghum_stats[i,'training_set']))
+}
+
+
+
+#make a pdf file
+pdf(
+  file = "MAPE.pdf",
+  width = 12,          # inches
+  height = 12,         # inches
+  useDingbats = FALSE # make sure symbols are rendered properly in the PDF
+)
+
+#graph to appear on the pdf 
+graph_all <- ggplot(data=sorghum_stats,aes(x=training_test_same,y=MAPE)) +
+  geom_point(aes(color=final_or_all,size=3,alpha=1/5)) +
+  xlab("Data") + #x-axis label
+  ylab("MAPE") + #y-axis label
+  labs(title = "MAPE Sorghum") +
+  theme(legend.position = "bottom") + #put legend at bottom 
+  scale_color_manual(name = "Training Set",values = c("blue", "red")) +
+  guides(size = FALSE, alpha = FALSE)
+
+print(graph_all)
+
+dev.off()
+
 
 #for miscanthus graphs
-setwd("C://Users/stark/OneDrive/Documents2021/biocro-dev/miscanthus_stat_graphs")
+setwd("C://Users/stark/OneDrive/Documents2021/biocro-dev/miscanthus_stat_graphs_v2")
 
 misc_stats <- read.csv("C:/Users/stark/OneDrive/Documents2021/biocro-dev/miscanthus_stats.csv")
+
+n <- nrow(misc_stats)
+
+final_or_all <- function(training_set){
+  if(grepl('Peak',training_set)){
+    return("Harvest and Peak")
+  }
+  else{
+    return("Harvest Only")
+  }
+}
+
+for(i in 1:n){
+  misc_stats[i,'training_test_same'] <- (training_or_test(misc_stats[i,'training_set'],misc_stats[i,'test_set']))
+  misc_stats[i,'final_or_all'] <- (final_or_all(misc_stats[i,'training_set']))
+}
+
+#make a pdf file
+pdf(
+  file = "MAE.pdf",
+  width = 12,          # inches
+  height = 12,         # inches
+  useDingbats = FALSE # make sure symbols are rendered properly in the PDF
+)
+
+#graph to appear on the pdf 
+graph_all <- ggplot(data=misc_stats,aes(x=training_test_same,y=MAE)) +
+  geom_point(aes(color=final_or_all,size=3,alpha=1/5)) +
+  xlab("Data") + #x-axis label
+  ylab("MAE") + #y-axis label
+  labs(title = "MAE Miscanthus") +
+  theme(legend.position = "bottom") + #put legend at bottom 
+  scale_color_manual(name = "Training Set",values = c("blue", "red")) +
+  guides(size = FALSE, alpha = FALSE)
+
+print(graph_all)
+
+dev.off()
 
 
 #make a pdf file
@@ -25,7 +112,7 @@ pdf(
   useDingbats = FALSE # make sure symbols are rendered properly in the PDF
 )
 
-#graphs to appear on the pdf - need to change the filters and the titles when switching between miscanthus and sorghum
+#graphs to appear on the pdf 
 Leave_Out_Wageningen <- ggplot(data=misc_stats %>% filter(grepl("AdAbMPS",training_set) & grepl("Peak and Harvest",test_set)), aes(x=factor(training_set,levels = rev(levels(factor(training_set)))),y=MAE, group=test_set)) +
   geom_line(aes(color=test_set))+
   geom_point() +
