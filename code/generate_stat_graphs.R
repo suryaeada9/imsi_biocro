@@ -4,13 +4,17 @@ library(patchwork)
 
 
 #for sorghum graphs
-setwd("C://Users/stark/OneDrive/Documents2021/biocro-dev/sorghum_stat_graphs_v2")
+setwd("C://Users/stark/OneDrive/Documents2021/biocro-dev/sorghum_stat_graphs_v3")
 
 sorghum_stats <- read.csv("C:/Users/stark/OneDrive/Documents2021/biocro-dev/sorghum_stats.csv")
 
-sorghum_stats['quality_stat'] <- 100 * (1-sorghum_stats[['Mahalanobis_normed']] / 4)
+sorghum_stats['quality_stat'] <- 100 * (1-log(sorghum_stats[['Mahalanobis_normed']]))
+
+sorghum_stats <- sorghum_stats %>% filter((grepl('all',training_set) & grepl('all',test_set)) | (grepl('final',training_set) & grepl('final',test_set)))
 
 n <- nrow(sorghum_stats)
+
+View(sorghum_stats)
 
 training_or_test <- function(training_set,test_set){
   if(training_set == test_set){
@@ -39,18 +43,18 @@ for(i in 1:n){
 
 #make a pdf file
 pdf(
-  file = "MAPE.pdf",
+  file = "RSquared.pdf",
   width = 12,          # inches
   height = 12,         # inches
   useDingbats = FALSE # make sure symbols are rendered properly in the PDF
 )
 
 #graph to appear on the pdf 
-graph_all <- ggplot(data=sorghum_stats,aes(x=training_test_same,y=MAPE)) +
+graph_all <- ggplot(data=sorghum_stats,aes(x=training_test_same,y=RSquared)) +
   geom_point(aes(color=final_or_all,size=3,alpha=1/5)) +
   xlab("Data") + #x-axis label
-  ylab("MAPE") + #y-axis label
-  labs(title = "MAPE Sorghum") +
+  ylab("R-Squared") + #y-axis label
+  labs(title = "R-Squared Sorghum") +
   theme(legend.position = "bottom") + #put legend at bottom 
   scale_color_manual(name = "Training Set",values = c("blue", "red")) +
   guides(size = FALSE, alpha = FALSE)
@@ -61,9 +65,11 @@ dev.off()
 
 
 #for miscanthus graphs
-setwd("C://Users/stark/OneDrive/Documents2021/biocro-dev/miscanthus_stat_graphs_v2")
+setwd("C://Users/stark/OneDrive/Documents2021/biocro-dev/miscanthus_stat_graphs_v3")
 
 misc_stats <- read.csv("C:/Users/stark/OneDrive/Documents2021/biocro-dev/miscanthus_stats.csv")
+
+misc_stats <- misc_stats %>% filter((grepl('Peak',training_set) & grepl('Peak',test_set)) | (grepl('Only',training_set) & grepl('Only',test_set)))
 
 n <- nrow(misc_stats)
 
@@ -83,18 +89,18 @@ for(i in 1:n){
 
 #make a pdf file
 pdf(
-  file = "MAE.pdf",
+  file = "ChiSquared.pdf",
   width = 12,          # inches
   height = 12,         # inches
   useDingbats = FALSE # make sure symbols are rendered properly in the PDF
 )
 
 #graph to appear on the pdf 
-graph_all <- ggplot(data=misc_stats,aes(x=training_test_same,y=MAE)) +
+graph_all <- ggplot(data=misc_stats,aes(x=training_test_same,y=ChiSquared)) +
   geom_point(aes(color=final_or_all,size=3,alpha=1/5)) +
   xlab("Data") + #x-axis label
-  ylab("MAE") + #y-axis label
-  labs(title = "MAE Miscanthus") +
+  ylab("Chi-Squared") + #y-axis label
+  labs(title = "Chi-Squared Miscanthus") +
   theme(legend.position = "bottom") + #put legend at bottom 
   scale_color_manual(name = "Training Set",values = c("blue", "red")) +
   guides(size = FALSE, alpha = FALSE)
