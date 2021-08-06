@@ -4,7 +4,13 @@ library(dplyr)
 library(patchwork)
 library(dfoptim)
 library(readxl)
+
+#get data
 Miscanthus_gigantus_data <- read_excel("C://Users/stark/OneDrive/Documents2021/biocro-dev/Miscanthus_gigantus_data.xlsx")
+
+#format dates
+Miscanthus_gigantus_data = within(Miscanthus_gigantus_data, {
+  Harvest_Doy = lubridate::yday(Harvest_Date)})
 
 # Some modules are included as named list elements so they can be easily changed
 # on-the-fly to a different value, e.g.,
@@ -206,7 +212,7 @@ misc_parameters_logistic = with(list(), {
   datalines =
     "symbol                     value
     absorptivity_par            0.8
-    alpha1                      0.04
+    alpha1                      0.046
     alphab1                     0
     alphaLeaf                   15
     alphaRoot                   18
@@ -223,7 +229,7 @@ misc_parameters_logistic = with(list(), {
     et_equation                 0
     Gs_min                      1e-3
     heightf                     3
-    iSp                         1.7
+    iSp                         5.7
     kd                          0.1
     kparm                       0.7
     kpLN                        0.2
@@ -281,9 +287,9 @@ misc_parameters_logistic = with(list(), {
     timestep                    1
     TTemr                       50
     TTveg                       750
-    TTrep                       3000
+    TTrep                       1450
     upperT                      37.5
-    vmax1                       39
+    vmax1                       45
     vmax_n_intercept            0
     water_stress_approach       1"
   
@@ -296,6 +302,43 @@ misc_parameters_logistic = with(list(), {
 init_vals_logistic <- miscanthus_x_giganteus_initial_values
 init_vals_logistic[['DVI']] <- -1 #need DVI for initial values when running logistic model
 
+#runs the BioCro model for a given city
+misc_result <- function(city_name,parameters,steady_state_mods,deriv_mods){
+  file_path <- paste0("C://Users/stark/OneDrive/Documents2021/biocro-dev/miscanthus/",city_name,"_weather.csv")
+  climate <- read.csv(file_path)
+  result <- run_biocro(miscanthus_x_giganteus_initial_values,parameters,
+                       climate,steady_state_mods,deriv_mods,miscanthus_x_giganteus_integrator)
+  return(result)
+}
+
+#runs the logistic version of the BioCro model for a given city
+misc_result_logistic <- function(city_name,parameters,steady_state_mods,deriv_mods){
+  file_path <- paste0("C://Users/stark/OneDrive/Documents2021/biocro-dev/miscanthus/",city_name,"_weather.csv")
+  climate <- read.csv(file_path)
+  result <- run_biocro(init_vals_logistic,parameters,
+                       climate,steady_state_mods,deriv_mods,miscanthus_x_giganteus_integrator)
+  return(result)
+}
+
+#get data for a specific city
+city_data <- function(city_name){
+  r <- Miscanthus_gigantus_data %>% filter(Location == city_name)
+  city_df <- data.frame(location = c(city_name,city_name),doy= c(as.numeric(r[1,'Peak_Doy']),365 + as.numeric(r[1,'Harvest_Doy'])),year= c(2014,2015), yield = c(as.numeric(r[1,'Peak_Yield']),as.numeric(r[1,'Harvest_Yield'])))
+  return(city_df)
+}
+
+#get final yield data for a specific city
+city_data_final_yield_only <- function(city_name){
+  r <- Miscanthus_gigantus_data %>% filter(Location == city_name)
+  city_df <- data.frame(location = c(city_name),doy= c(365 + as.numeric(r[1,'Harvest_Doy'])),year= c(2015), yield = c(as.numeric(r[1,'Harvest_Yield'])))
+  return(city_df)
+}
+
+#join the observed data to the BioCro model for that city
+model_and_actual <- function(city_name,parameters,steady_state_mods,deriv_mods){
+  final_data <- full_join(misc_result_logistic(city_name,parameters,steady_state_mods,deriv_mods),city_data(city_name),by=c('doy','year'))
+  return(final_data)
+}
 
 #precalculate some stuff about the actual and model data to make Statistics functions easier
 df_inner_join <- function(actualData,modelResult){
@@ -313,10 +356,11 @@ df_inner_join <- function(actualData,modelResult){
   return(innerJoinDf)
 }
 
-df_inner_join(city_data("Adana"),adana_result)
 
-#calculate RMSE, MAE, MAPE, and Chi Square for data from a given siteId vs the BioCro model
+#calculate RMSE, MAE, MAPE, and ChiSquared for observed data vs the BioCro model
 StatisticsMultipleCities <- function(city_names,parameters,steady_state_mods,deriv_mods){
+  
+  #add data for each city one at a time
   df = data.frame()
   for(city_name in city_names){
     innerJoinDf <- df_inner_join(city_data(city_name),misc_result_logistic(city_name,parameters,steady_state_mods,deriv_mods))
@@ -341,41 +385,111 @@ StatisticsMultipleCities <- function(city_names,parameters,steady_state_mods,der
   return(stats)
 }
 
-misc_result <- function(city_name,parameters,steady_state_mods,deriv_mods){
-  file_path <- paste0("C://Users/stark/OneDrive/Documents2021/biocro-dev/miscanthus/",city_name,"_weather.csv")
-  climate <- read.csv(file_path)
-  result <- run_biocro(miscanthus_x_giganteus_initial_values,parameters,
-                       climate,steady_state_mods,deriv_mods,miscanthus_x_giganteus_integrator)
-  return(result)
+#calculate the statistics for final yield values only
+StatisticsMultipleCitiesFinalYield <- function(city_names,parameters,steady_state_mods,deriv_mods){
+  df = data.frame()
+  for(city_name in city_names){
+    innerJoinDf <- df_inner_join(city_data_final_yield_only(city_name),misc_result_logistic(city_name,parameters,steady_state_mods,deriv_mods))
+    df <- rbind(df,innerJoinDf)
+  }
+  #find sums of a few columns for stats calculations
+  SumOfDiffsSquared = sum(df[,'diffSquares'])
+  SumOfAbsDiffs = sum(df[,'actualMinusModelAbs'])
+  SumOfAbsPercs = sum(df[,'absPercentError'])
+  
+  #number of rows
+  n = nrow(df)
+  
+  #stats calculations
+  RMSE = sqrt(SumOfDiffsSquared/n)
+  MAE = SumOfAbsDiffs/n
+  MAPE = SumOfAbsPercs/n
+  ChiSquare = sum(df[,'chiSquareToSum'])
+  
+  stats = data.frame(RMSE = c(RMSE), MAE = c(MAE), MAPE = c(MAPE), ChiSquare = c(ChiSquare))
+  
+  return(stats)
 }
 
-misc_result_logistic <- function(city_name,parameters,steady_state_mods,deriv_mods){
-  file_path <- paste0("C://Users/stark/OneDrive/Documents2021/biocro-dev/miscanthus/",city_name,"_weather.csv")
-  climate <- read.csv(file_path)
-  result <- run_biocro(init_vals_logistic,parameters,
-                       climate,steady_state_mods,deriv_mods,miscanthus_x_giganteus_integrator)
-  return(result)
+#partial statistics
+PartialStatisticsMultipleCities <- function(x,misc_partial,city_names,parameters,steady_state_mods,deriv_mods){
+  df = data.frame()
+  for(city_name in city_names){
+    file_path <- paste0("C://Users/stark/OneDrive/Documents2021/biocro-dev/miscanthus/",city_name,"_weather.csv")
+    climate <- read.csv(file_path)
+    innerJoinDf <- df_inner_join(city_data(city_name),misc_partial(climate)(x))
+    df <- rbind(df,innerJoinDf)
+  }
+  #find sums of a few columns for stats calculations
+  SumOfDiffsSquared = sum(df[,'diffSquares'])
+  SumOfAbsDiffs = sum(df[,'actualMinusModelAbs'])
+  SumOfAbsPercs = sum(df[,'absPercentError'])
+  
+  #number of rows
+  n = nrow(df)
+  
+  #stats calculations
+  RMSE = sqrt(SumOfDiffsSquared/n)
+  MAE = SumOfAbsDiffs/n
+  MAPE = SumOfAbsPercs/n
+  ChiSquare = sum(df[,'chiSquareToSum'])
+  
+  stats = data.frame(RMSE = c(RMSE), MAE = c(MAE), MAPE = c(MAPE), ChiSquare = c(ChiSquare))
+  
+  return(stats)
 }
 
-adana_result <- misc_result("Adana",miscanthus_x_giganteus_parameters,miscanthus_x_giganteus_steady_state_modules,miscanthus_x_giganteus_derivative_modules)
-
-Miscanthus_gigantus_data = within(Miscanthus_gigantus_data, {
-  Harvest_Doy = lubridate::yday(Harvest_Date)})
-
-city_data <- function(city_name){
-  r <- Miscanthus_gigantus_data %>% filter(Location == city_name)
-  city_df <- data.frame(location = c(city_name,city_name),doy= c(as.numeric(r[1,'Peak_Doy']),365 + as.numeric(r[1,'Harvest_Doy'])),year= c(2014,2015), yield = c(as.numeric(r[1,'Peak_Yield']),as.numeric(r[1,'Harvest_Yield'])))
-  return(city_df)
+#partial statistics final yield only
+PartialStatisticsMultipleCities <- function(x,misc_partial,city_names,parameters,steady_state_mods,deriv_mods){
+  df = data.frame()
+  for(city_name in city_names){
+    file_path <- paste0("C://Users/stark/OneDrive/Documents2021/biocro-dev/miscanthus/",city_name,"_weather.csv")
+    climate <- read.csv(file_path)
+    innerJoinDf <- df_inner_join(city_data_final_yield_only(city_name),misc_partial(climate)(x))
+    df <- rbind(df,innerJoinDf)
+  }
+  #find sums of a few columns for stats calculations
+  SumOfDiffsSquared = sum(df[,'diffSquares'])
+  SumOfAbsDiffs = sum(df[,'actualMinusModelAbs'])
+  SumOfAbsPercs = sum(df[,'absPercentError'])
+  
+  #number of rows
+  n = nrow(df)
+  
+  #stats calculations
+  RMSE = sqrt(SumOfDiffsSquared/n)
+  MAE = SumOfAbsDiffs/n
+  MAPE = SumOfAbsPercs/n
+  ChiSquare = sum(df[,'chiSquareToSum'])
+  
+  stats = data.frame(RMSE = c(RMSE), MAE = c(MAE), MAPE = c(MAPE), ChiSquare = c(ChiSquare))
+  
+  return(stats)
 }
 
-model_and_actual <- function(city_name,parameters,steady_state_mods,deriv_mods){
-  final_data <- full_join(misc_result_logistic(city_name,parameters,steady_state_mods,deriv_mods),city_data(city_name),by=c('doy','year'))
-  return(final_data)
+#run hjkb and return new parameters
+new_parameters <- function(city_names,params_to_change,lower_bounds,upper_bounds,current_params,steady_state_mods,deriv_mods,stat_to_minimize){
+  misc_partial <- function(climate){
+    return(partial_run_biocro(init_vals_logistic,current_params,
+                              climate,steady_state_mods,deriv_mods,
+                              miscanthus_x_giganteus_integrator,params_to_change))
+  }
+  #st is stat: RMSE, MAE, MAPE, or ChiSquare
+  misc_stat <- function(x,st=stat_to_minimize){
+    return(PartialStatisticsMultipleCities(x,misc_partial,city_names,current_params,steady_state_mods,deriv_mods)[,c(st)])
+  }
+  para <- as.numeric(unname(current_params[params_to_change]))
+  ans <- hjkb(para,misc_stat,lower=lower_bounds,upper = upper_bounds)
+  new_params <- ans$par
+  names(new_params) <- params_to_change
+  altered_params <- current_params
+  for(p in params_to_change){
+    altered_params[[p]] <- new_params[[p]]
+  }
+  return(altered_params)
 }
 
-
-
-
+#graph multiple cities together
 GraphMultipleCities <- function(city_names,parameters,steady_state_mods,deriv_mods){
   stats_df = StatisticsMultipleCities(city_names,parameters,steady_state_mods,deriv_mods)
   stats_str = "Statistics "
@@ -421,217 +535,13 @@ GraphMultipleCities <- function(city_names,parameters,steady_state_mods,deriv_mo
   return(graph)
 }
 
-#normalize kLeaf1, kStem1, kRoot1, kGrain1, etc.
-#necessary for the partitioning selector model
-normalize_kVals <- function(current_params){
-  kVals <- data.frame(Leaf = c(current_params$kLeaf1,current_params$kLeaf2,current_params$kLeaf3,current_params$kLeaf4,current_params$kLeaf5,current_params$kLeaf6),
-                      Stem = c(current_params$kStem1,current_params$kStem2,current_params$kStem3,current_params$kStem4,current_params$kStem5,current_params$kStem6),
-                      Root = c(current_params$kRoot1,current_params$kRoot2,current_params$kRoot3,current_params$kRoot4,current_params$kRoot5,current_params$kRoot6),
-                      Grain = c(current_params$kGrain1,current_params$kGrain2,current_params$kGrain3,current_params$kGrain4,current_params$kGrain5,current_params$kGrain6),
-                      Rhizome = c(current_params$kRhizome1,current_params$kRhizome2,current_params$kRhizome3,current_params$kRhizome4,current_params$kRhizome5,current_params$kRhizome6))
-  
-  
-  kVals <- mutate(kVals, Sum = Leaf + Stem + Root + Grain+Rhizome)
-  kVals <- mutate(kVals, Leaf = Leaf/Sum)
-  kVals <- mutate(kVals, Stem = Stem/Sum)
-  kVals <- mutate(kVals, Root = Root/Sum)
-  kVals <- mutate(kVals, Grain = Grain/Sum)
-  kVals <- mutate(kVals, Rhizome = Rhizome/Sum)
-  
-  current_params$kLeaf1 <- kVals[1,1]
-  current_params$kLeaf2 <- kVals[2,1]
-  current_params$kLeaf3 <- kVals[3,1]
-  current_params$kLeaf4 <- kVals[4,1]
-  current_params$kLeaf5 <- kVals[5,1]
-  current_params$kLeaf6 <- kVals[6,1]
-  current_params$kStem1 <- kVals[1,2]
-  current_params$kStem2 <- kVals[2,2]
-  current_params$kStem3 <- kVals[3,2]
-  current_params$kStem4 <- kVals[4,2]
-  current_params$kStem5 <- kVals[5,2]
-  current_params$kStem6 <- kVals[6,2]
-  current_params$kRoot1 <- kVals[1,3]
-  current_params$kRoot2 <- kVals[2,3]
-  current_params$kRoot3 <- kVals[3,3]
-  current_params$kRoot4 <- kVals[4,3]
-  current_params$kRoot5 <- kVals[5,3]
-  current_params$kRoot6 <- kVals[6,3]
-  current_params$kGrain1 <- kVals[1,4]
-  current_params$kGrain2 <- kVals[2,4]
-  current_params$kGrain3 <- kVals[3,4]
-  current_params$kGrain4 <- kVals[4,4]
-  current_params$kGrain5 <- kVals[5,4]
-  current_params$kGrain6 <- kVals[6,4]
-  current_params$kRhizome1 <- kVals[1,5]
-  current_params$kRhizome2 <- kVals[2,5]
-  current_params$kRhizome3 <- kVals[3,5]
-  current_params$kRhizome4 <- kVals[4,5]
-  current_params$kRhizome5 <- kVals[5,5]
-  current_params$kRhizome6 <- kVals[6,5]
-  
-  return(current_params)
-}
+#input previously run parameters that we liked
+#new_params_final_temp <- Params_fitted_to_AbMPSW_logistic_minimizing_ChiSquare
+#temp_parameters <- new_params_final_temp[2,]
+#names(temp_parameters) <- new_params_final_temp[1,]
 
-#this is partial_run_biocro with one line of code added that normalizes the k values before running the model
-#haven't changed this to Justin's suggestion yet
-partial_run_biocro_with_normalize <- function(
-  initial_values = list(),
-  parameters = list(),
-  drivers,
-  steady_state_module_names = list(),
-  derivative_module_names = list(),
-  integrator = default_integrator,
-  arg_names,
-  verbose = FALSE
-)
-{
-  # Accepts the same parameters as run_biocro() with an additional
-  # 'arg_names' parameter, which is a vector of character variables.
-  #
-  # Returns a function that runs run_biocro() with all of the
-  # parameters (except those in 'arg_names') set as their default values. The
-  # only parameter in the new function is a numerical vector specifying the
-  # values of the quantities in 'arg_names'. This technique is called "partial
-  # application," hence the name partial_run_biocro.
-  #
-  # initial_values: same as run_biocro()
-  # parameters: same as run_biocro()
-  # drivers: same as run_biocro()
-  # steady_state_module_names: same as run_biocro()
-  # derivative_module_names: same as run_biocro()
-  # integrator: same as run_biocro()
-  # arg_names: vector of character variables. The names of the arguments that
-  #            the new function accepts. Note: 'arg_names' can only contain
-  #            the names of parameters in 'initial_values', 'parameters', or
-  #            'drivers'.
-  # verbose: same as run_biocro()
-  #
-  # returns f(arg).
-  #
-  # Example: varying the TTc values at which senescence starts for a sorghum
-  # simulation; here we set them all to 2000 degrees C * day instead of the
-  # default sorghum values.
-  #
-  #     senescence_simulation <- partial_run_biocro(
-  #         sorghum_initial_values,
-  #         sorghum_parameters,
-  #         get_growing_season_climate(weather05),
-  #         sorghum_steady_state_modules,
-  #         sorghum_derivative_modules,
-  #         sorghum_integrator,
-  #         c('seneLeaf', 'seneStem', 'seneRoot', 'seneRhizome'),
-  #         TRUE
-  #     )
-  #
-  #     result = senescence_simulation(c(2000, 2000, 2000, 2000))
-  
-  arg_list = list(
-    initial_values=initial_values,
-    parameters=parameters,
-    drivers=drivers,
-    steady_state_module_names=steady_state_module_names,
-    derivative_module_names=derivative_module_names,
-    integrator=integrator,
-    verbose=verbose
-  )
-  
-  df = data.frame(
-    control=character(),
-    arg_name=character(),
-    stringsAsFactors=FALSE
-  )
-  
-  for (i in seq_along(arg_list)) {
-    if (length(names(arg_list[[i]])) > 0) {
-      df = rbind(
-        df,
-        data.frame(
-          control = names(arg_list)[i],
-          arg_name=names(arg_list[[i]]),
-          stringsAsFactors=FALSE
-        )
-      )
-    }
-  }
-  
-  # Find the locations of the parameters specified in arg_names and check for
-  # errors
-  controls = df[match(arg_names, df$arg_name), ]
-  if (any(is.na(controls))) {
-    missing = arg_names[which(is.na(controls$control))]
-    stop(paste('The following arguments in "arg_names" are not in any of the paramter lists:', paste(missing, collapse=', ')))
-  }
-  
-  # Make a function that calls run_biocro with new values for the
-  # parameters specified in arg_names
-  function(x)
-  {
-    if (length(x) != length(arg_names)) {
-      stop("The length of x does not match the length of arguments when this function was defined.")
-    }
-    x = unlist(x)
-    temp_arg_list = arg_list
-    for (i in seq_along(arg_names)) {
-      c_row = controls[i, ]
-      temp_arg_list[[c_row$control]][[c_row$arg_name]] = x[i]
-    }
-    
-    temp_arg_list[['parameters']] <- normalize_kVals(temp_arg_list[['parameters']])
-    do.call(run_biocro, temp_arg_list)
-  }
-}
-
-#calculate RMSE, MAE, MAPE, and Chi Square for data from a given siteId vs the BioCro model
-PartialStatisticsMultipleCities <- function(x,misc_partial,city_names,parameters,steady_state_mods,deriv_mods){
-  df = data.frame()
-  for(city_name in city_names){
-    file_path <- paste0("C://Users/stark/OneDrive/Documents2021/biocro-dev/miscanthus/",city_name,"_weather.csv")
-    climate <- read.csv(file_path)
-    innerJoinDf <- df_inner_join(city_data(city_name),misc_partial(climate)(x))
-    df <- rbind(df,innerJoinDf)
-  }
-  #find sums of a few columns for stats calculations
-  SumOfDiffsSquared = sum(df[,'diffSquares'])
-  SumOfAbsDiffs = sum(df[,'actualMinusModelAbs'])
-  SumOfAbsPercs = sum(df[,'absPercentError'])
-  
-  #number of rows
-  n = nrow(df)
-  
-  #stats calculations
-  RMSE = sqrt(SumOfDiffsSquared/n)
-  MAE = SumOfAbsDiffs/n
-  MAPE = SumOfAbsPercs/n
-  ChiSquare = sum(df[,'chiSquareToSum'])
-  
-  stats = data.frame(RMSE = c(RMSE), MAE = c(MAE), MAPE = c(MAPE), ChiSquare = c(ChiSquare))
-  
-  return(stats)
-}
-
-new_parameters <- function(city_names,params_to_change,lower_bounds,upper_bounds,current_params,steady_state_mods,deriv_mods,stat_to_minimize){
-  misc_partial <- function(climate){
-    return(partial_run_biocro(init_vals_logistic,current_params,
-                                             climate,steady_state_mods,deriv_mods,
-                                             miscanthus_x_giganteus_integrator,params_to_change))
-  }
-  #st is stat: RMSE, MAE, MAPE, MAPE_mod, or ChiSquare
-  misc_stat <- function(x,st=stat_to_minimize){
-    return(PartialStatisticsMultipleCities(x,misc_partial,city_names,current_params,steady_state_mods,deriv_mods)[,c(st)])
-  }
-  para <- as.numeric(unname(current_params[params_to_change]))
-  ans <- hjkb(para,misc_stat,lower=lower_bounds,upper = upper_bounds)
-  new_params <- ans$par
-  names(new_params) <- params_to_change
-  altered_params <- current_params
-  for(p in params_to_change){
-    altered_params[[p]] <- new_params[[p]]
-  }
-  return(altered_params)
-}
-
-
-new_params <- new_parameters(list("Aberystwyth","Moscow","Potash","Stuttgart","Wageningen"),
+#gets a set of new parameters
+new_params <- new_parameters(list("Adana","Moscow","Potash","Stuttgart","Wageningen"),
                              c("iSp","Sp_thermal_time_decay","alphaLeaf","alphaStem","alphaRoot",
                                 "betaLeaf","betaStem","betaRoot",
                                  "TTemr","TTveg","TTrep"),
@@ -642,25 +552,44 @@ new_params <- new_parameters(list("Aberystwyth","Moscow","Potash","Stuttgart","W
                                10,10,10,
                                10000,10001,10002),misc_parameters_logistic,
                              misc_steady_state_modules_logistic,misc_derivative_modules_logistic,
-                             "MAPE")
+                             "ChiSquare")
 
 View(new_params)
 
-setwd("C://Users/stark/OneDrive/Documents2021/biocro-dev/miscanthus")
+#miscanthus takes longer to run, because BioCro needed to be run a lot more times (one for each city)
+#so I did not iterate Hooke-Jeeves multiple times for this
+#doing so may have resulted in an even better fit
+
+#make pdfs of graphs
+setwd("C://Users/stark/OneDrive/Documents2021/biocro-dev/miscanthus_final_yield_only")
 
 #make a pdf file graph
 pdf(
-  file = "AbMPSW_after_fit_AbMPSW_MAPE_logistic.pdf",
+  file = "AdMPSW_after_fit_AdMPSW_ChiSquare_logistic.pdf",
   width = 7,          # inches
-  height = 10.5,         # inches
+  height = 10,         # inches
   useDingbats = FALSE # make sure symbols are rendered properly in the PDF
 )
 
 x11()
 
-print(GraphMultipleCities(list("Aberystwyth","Moscow","Potash","Stuttgart","Wageningen"),new_params,misc_steady_state_modules_logistic,misc_derivative_modules_logistic))
+print(GraphMultipleCities(list("Adana","Moscow","Potash","Stuttgart","Wageningen"),new_params,misc_steady_state_modules_logistic,misc_derivative_modules_logistic))
+
+dev.off()
+
+#make a pdf file graph
+pdf(
+  file = "Ab_after_fit_AdMPSW_ChiSquare_logistic.pdf",
+  width = 7,          # inches
+  height = 10,         # inches
+  useDingbats = FALSE # make sure symbols are rendered properly in the PDF
+)
+
+x11()
+
+print(GraphMultipleCities(list("Aberystwyth"),new_params,misc_steady_state_modules_logistic,misc_derivative_modules_logistic))
 
 dev.off()
 
 #store the list of parameters for future reference
-write.table(new_params,file="Params_fitted_to_AbMPSW_logistic_minimizing_MAPE.txt")
+write.table(new_params,file="Params_fitted_to_AdMPSW_logistic_minimizing_ChiSquare.txt")
